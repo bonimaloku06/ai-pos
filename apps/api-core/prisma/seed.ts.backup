@@ -1,0 +1,284 @@
+import { PrismaClient } from "@prisma/client";
+import { hashPassword } from "../src/lib/auth.js";
+
+const prisma = new PrismaClient();
+
+// Helper function to generate random dates
+function randomDate(start: Date, end: Date) {
+  return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
+}
+
+// Helper function to generate random integer
+function randomInt(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+async function main() {
+  console.log("🌱 Seeding database...");
+
+  // Clear existing data (except migrations)
+  console.log("🧹 Cleaning up existing data...");
+  await prisma.auditLog.deleteMany({});
+  await prisma.stockMovement.deleteMany({});
+  await prisma.saleLine.deleteMany({});
+  await prisma.sale.deleteMany({});
+  await prisma.grLine.deleteMany({});
+  await prisma.goodsReceipt.deleteMany({});
+  await prisma.poLine.deleteMany({});
+  await prisma.purchaseOrder.deleteMany({});
+  await prisma.reorderSuggestion.deleteMany({});
+  await prisma.batch.deleteMany({});
+  await prisma.productSupplier.deleteMany({});
+  await prisma.priceRule.deleteMany({});
+  await prisma.product.deleteMany({});
+  await prisma.category.deleteMany({});
+  await prisma.supplier.deleteMany({});
+  await prisma.taxClass.deleteMany({});
+  await prisma.forecastParam.deleteMany({});
+  await prisma.refreshToken.deleteMany({});
+  await prisma.user.deleteMany({});
+  await prisma.store.deleteMany({});
+
+  console.log("✓ Cleaned up existing data");
+
+  // Create default store
+  const store = await prisma.store.create({
+    data: {
+      id: "default-store",
+      name: "Main Pharmacy",
+      address: "123 Main Street",
+      phone: "+1234567890",
+      isActive: true,
+    },
+  });
+
+  console.log("✓ Created default store:", store.name);
+
+  // Create users
+  const adminPassword = await hashPassword("admin123");
+  const admin = await prisma.user.create({
+    data: {
+      email: "admin@pharmacy.com",
+      passwordHash: adminPassword,
+      role: "ADMIN",
+      storeId: store.id,
+      isActive: true,
+    },
+  });
+
+  const managerPassword = await hashPassword("manager123");
+  const manager = await prisma.user.create({
+    data: {
+      email: "manager@pharmacy.com",
+      passwordHash: managerPassword,
+      role: "MANAGER",
+      storeId: store.id,
+      isActive: true,
+    },
+  });
+
+  const cashierPassword = await hashPassword("cashier123");
+  const cashier = await prisma.user.create({
+    data: {
+      email: "cashier@pharmacy.com",
+      passwordHash: cashierPassword,
+      role: "CASHIER",
+      storeId: store.id,
+      isActive: true,
+    },
+  });
+
+  console.log("✓ Created users (admin, manager, cashier)");
+
+  // Create tax class
+  const taxClass = await prisma.taxClass.create({
+    data: {
+      id: "standard-tax",
+      name: "Standard VAT",
+      rate: 0.2, // 20%
+    },
+  });
+
+  console.log("✓ Created tax class:", taxClass.name);
+
+  // Create categories
+  const painRelief = await prisma.category.create({ data: { name: "Pain Relief" } });
+  const coldFlu = await prisma.category.create({ data: { name: "Cold & Flu" } });
+  const vitamins = await prisma.category.create({ data: { name: "Vitamins & Supplements" } });
+  const antibiotics = await prisma.category.create({ data: { name: "Antibiotics" } });
+  const firstAid = await prisma.category.create({ data: { name: "First Aid" } });
+  const skinCare = await prisma.category.create({ data: { name: "Skin Care" } });
+  const digestive = await prisma.category.create({ data: { name: "Digestive Health" } });
+
+  console.log("✓ Created 7 categories");
+
+  // Create sample products
+  const products = await Promise.all([
+    prisma.product.create({
+      data: {
+        name: "Paracetamol 500mg",
+        sku: "PARA-500",
+        barcode: "1234567890123",
+        description: "Pain relief and fever reducer",
+        unit: "tablet",
+        packSize: 20,
+        categoryId: category1.id,
+        taxClassId: taxClass.id,
+        status: "ACTIVE",
+      },
+    }),
+    prisma.product.create({
+      data: {
+        name: "Ibuprofen 200mg",
+        sku: "IBU-200",
+        barcode: "1234567890124",
+        description: "Anti-inflammatory pain relief",
+        unit: "tablet",
+        packSize: 24,
+        categoryId: category1.id,
+        taxClassId: taxClass.id,
+        status: "ACTIVE",
+      },
+    }),
+    prisma.product.create({
+      data: {
+        name: "Cough Syrup",
+        sku: "COUGH-SYR",
+        barcode: "1234567890125",
+        description: "Relieves cough and cold symptoms",
+        unit: "bottle",
+        packSize: 1,
+        categoryId: category2.id,
+        taxClassId: taxClass.id,
+        status: "ACTIVE",
+      },
+    }),
+    prisma.product.create({
+      data: {
+        name: "Vitamin C 1000mg",
+        sku: "VIT-C-1000",
+        barcode: "1234567890126",
+        description: "Immune system support",
+        unit: "tablet",
+        packSize: 30,
+        categoryId: category3.id,
+        taxClassId: taxClass.id,
+        status: "ACTIVE",
+      },
+    }),
+    prisma.product.create({
+      data: {
+        name: "Multivitamin",
+        sku: "MULTI-VIT",
+        barcode: "1234567890127",
+        description: "Daily multivitamin supplement",
+        unit: "tablet",
+        packSize: 60,
+        categoryId: category3.id,
+        taxClassId: taxClass.id,
+        status: "ACTIVE",
+      },
+    }),
+  ]);
+
+  console.log(`✓ Created ${products.length} sample products`);
+
+  // Create a sample supplier
+  const supplier = await prisma.supplier.create({
+    data: {
+      name: "MediSupply Inc.",
+      contactPerson: "John Supplier",
+      email: "john@medisupply.com",
+      phone: "+1234567890",
+      leadTimeDays: 7,
+      deliveryDays: ["MON", "WED", "FRI"],
+      moq: 10,
+      currency: "USD",
+      paymentTerms: "NET 30",
+      isActive: true,
+    },
+  });
+
+  console.log("✓ Created sample supplier");
+
+  // Create batches for products (so we have stock to sell)
+  const batches = await Promise.all([
+    prisma.batch.create({
+      data: {
+        productId: products[0].id, // Paracetamol
+        supplierId: supplier.id,
+        storeId: store.id,
+        batchNumber: "BATCH-001",
+        expiryDate: new Date("2026-12-31"),
+        unitCost: 5.0,
+        qtyOnHand: 100,
+        receivedAt: new Date(),
+      },
+    }),
+    prisma.batch.create({
+      data: {
+        productId: products[1].id, // Ibuprofen
+        supplierId: supplier.id,
+        storeId: store.id,
+        batchNumber: "BATCH-002",
+        expiryDate: new Date("2026-06-30"),
+        unitCost: 6.5,
+        qtyOnHand: 150,
+        receivedAt: new Date(),
+      },
+    }),
+    prisma.batch.create({
+      data: {
+        productId: products[2].id, // Cough Syrup
+        supplierId: supplier.id,
+        storeId: store.id,
+        batchNumber: "BATCH-003",
+        expiryDate: new Date("2025-12-31"),
+        unitCost: 8.0,
+        qtyOnHand: 50,
+        receivedAt: new Date(),
+      },
+    }),
+    prisma.batch.create({
+      data: {
+        productId: products[3].id, // Vitamin C
+        supplierId: supplier.id,
+        storeId: store.id,
+        batchNumber: "BATCH-004",
+        expiryDate: new Date("2027-03-31"),
+        unitCost: 7.5,
+        qtyOnHand: 200,
+        receivedAt: new Date(),
+      },
+    }),
+    prisma.batch.create({
+      data: {
+        productId: products[4].id, // Multivitamin
+        supplierId: supplier.id,
+        storeId: store.id,
+        batchNumber: "BATCH-005",
+        expiryDate: new Date("2026-09-30"),
+        unitCost: 12.0,
+        qtyOnHand: 120,
+        receivedAt: new Date(),
+      },
+    }),
+  ]);
+
+  console.log(`✓ Created ${batches.length} sample batches with stock`);
+
+  console.log("\n🎉 Seeding complete!\n");
+  console.log("📝 Default users:");
+  console.log("   Admin:    admin@pharmacy.com / admin123");
+  console.log("   Manager:  manager@pharmacy.com / manager123");
+  console.log("   Cashier:  cashier@pharmacy.com / cashier123\n");
+}
+
+main()
+  .catch((e) => {
+    console.error("❌ Error seeding database:", e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
