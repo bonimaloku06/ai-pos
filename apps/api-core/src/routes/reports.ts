@@ -16,8 +16,16 @@ export const reportRoutes: FastifyPluginAsync = async (server) => {
     if (storeId) where.storeId = storeId;
     if (startDate || endDate) {
       where.createdAt = {};
-      if (startDate) where.createdAt.gte = new Date(startDate);
-      if (endDate) where.createdAt.lte = new Date(endDate);
+      if (startDate) {
+        // Start of day (00:00:00)
+        where.createdAt.gte = new Date(startDate);
+      }
+      if (endDate) {
+        // End of day (23:59:59.999)
+        const endOfDay = new Date(endDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        where.createdAt.lte = endOfDay;
+      }
     }
 
     try {
@@ -131,8 +139,16 @@ export const reportRoutes: FastifyPluginAsync = async (server) => {
     if (storeId) where.storeId = storeId;
     if (startDate || endDate) {
       where.createdAt = {};
-      if (startDate) where.createdAt.gte = new Date(startDate);
-      if (endDate) where.createdAt.lte = new Date(endDate);
+      if (startDate) {
+        // Start of day (00:00:00)
+        where.createdAt.gte = new Date(startDate);
+      }
+      if (endDate) {
+        // End of day (23:59:59.999)
+        const endOfDay = new Date(endDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        where.createdAt.lte = endOfDay;
+      }
     }
 
     try {

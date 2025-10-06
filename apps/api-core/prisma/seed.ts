@@ -10,7 +10,30 @@ function randomInt(min: number, max: number) {
 async function main() {
   console.log("🌱 Seeding database with enhanced data...");
 
-  // Note: Database is already reset by db:fresh command, no need to delete data manually
+  // Clear existing data (in reverse order of dependencies)
+  console.log("📦 Clearing existing data...");
+  await prisma.auditLog.deleteMany({});
+  await prisma.saleLine.deleteMany({});
+  await prisma.sale.deleteMany({});
+  await prisma.gRLine.deleteMany({});
+  await prisma.goodsReceipt.deleteMany({});
+  await prisma.pOLine.deleteMany({});
+  await prisma.purchaseOrder.deleteMany({});
+  await prisma.stockMovement.deleteMany({});
+  await prisma.batch.deleteMany({});
+  await prisma.reorderSuggestion.deleteMany({});
+  await prisma.forecastParam.deleteMany({});
+  await prisma.priceRule.deleteMany({});
+  await prisma.productSupplier.deleteMany({});
+  await prisma.product.deleteMany({});
+  await prisma.category.deleteMany({});
+  await prisma.activeIngredient.deleteMany({});
+  await prisma.taxClass.deleteMany({});
+  await prisma.supplier.deleteMany({});
+  await prisma.refreshToken.deleteMany({});
+  await prisma.user.deleteMany({});
+  await prisma.store.deleteMany({});
+  console.log("✅ Existing data cleared");
 
   // Store
   const store = await prisma.store.create({

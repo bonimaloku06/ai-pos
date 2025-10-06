@@ -4,7 +4,9 @@
   "private": true,
   "description": "Pharmacy POS & Smart Replenishment System",
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "./scripts/start-all.sh",
+    "dev:apps": "turbo run dev",
+    "stop": "./scripts/stop-all.sh",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",
@@ -12,7 +14,8 @@
     "clean": "turbo run clean && rm -rf node_modules",
     "db:migrate": "pnpm --filter api-core db:migrate",
     "db:seed": "pnpm --filter api-core db:seed",
-    "db:studio": "pnpm --filter api-core db:studio"
+    "db:studio": "pnpm --filter api-core db:studio",
+    "db:reset": "./scripts/reset-all.sh"
   },
   "devDependencies": {
     "turbo": "^2.3.0",

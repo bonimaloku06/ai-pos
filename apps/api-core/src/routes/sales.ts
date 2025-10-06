@@ -45,10 +45,7 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
               storeId: data.storeId,
               qtyOnHand: { gt: 0 },
             },
-            orderBy: [
-              { expiryDate: "asc" },
-              { receivedAt: "asc" },
-            ],
+            orderBy: [{ expiryDate: "asc" }, { receivedAt: "asc" }],
           });
 
           if (batches.length === 0) {
@@ -58,7 +55,9 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
           // Calculate total available
           const totalAvailable = batches.reduce((sum, b) => sum + b.qtyOnHand, 0);
           if (totalAvailable < line.qty) {
-            throw new Error(`Insufficient stock for product ${line.productId}. Available: ${totalAvailable}, Required: ${line.qty}`);
+            throw new Error(
+              `Insufficient stock for product ${line.productId}. Available: ${totalAvailable}, Required: ${line.qty}`
+            );
           }
 
           // Allocate from batches using FEFO
@@ -107,9 +106,15 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
         }
 
         // Calculate totals
-        const subtotal = processedLines.reduce((sum, l) => sum + (l.qty * l.unitPrice), 0);
-        const taxTotal = processedLines.reduce((sum, l) => sum + (l.qty * l.unitPrice * l.taxRate), 0);
-        const discountTotal = processedLines.reduce((sum, l) => sum + (l.qty * l.unitPrice * l.discount), 0);
+        const subtotal = processedLines.reduce((sum, l) => sum + l.qty * l.unitPrice, 0);
+        const taxTotal = processedLines.reduce(
+          (sum, l) => sum + l.qty * l.unitPrice * l.taxRate,
+          0
+        );
+        const discountTotal = processedLines.reduce(
+          (sum, l) => sum + l.qty * l.unitPrice * l.discount,
+          0
+        );
         const total = subtotal + taxTotal - discountTotal;
         const change = data.paid - total;
 
@@ -179,14 +184,14 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
           total: Number(result.total),
           paid: Number(result.paid),
           change: Number(result.change),
-          lines: result.lines.map(line => ({
+          lines: result.lines.map((line) => ({
             ...line,
             unitPrice: Number(line.unitPrice),
             taxRate: Number(line.taxRate),
             discount: Number(line.discount),
             lineTotal: Number(line.lineTotal),
           })),
-        }
+        },
       });
     } catch (error: any) {
       server.log.error(error);
@@ -230,116 +235,128 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
         total: Number(sale.total),
         paid: Number(sale.paid),
         change: Number(sale.change),
-        lines: sale.lines.map(line => ({
+        lines: sale.lines.map((line) => ({
           ...line,
           unitPrice: Number(line.unitPrice),
           taxRate: Number(line.taxRate),
           discount: Number(line.discount),
           lineTotal: Number(line.lineTotal),
-          batch: line.batch ? {
-            ...line.batch,
-            unitCost: Number(line.batch.unitCost),
-          } : null,
+          batch: line.batch
+            ? {
+                ...line.batch,
+                unitCost: Number(line.batch.unitCost),
+              }
+            : null,
         })),
-      }
+      },
     };
   });
 
   // Refund sale
-  server.post("/:id/refund", { preHandler: authorize("ADMIN", "MANAGER") }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const user = request.user as { id: string };
+  server.post(
+    "/:id/refund",
+    { preHandler: authorize("ADMIN", "MANAGER") },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const user = request.user as { id: string };
 
-    const originalSale = await prisma.sale.findUnique({
-      where: { id },
-      include: { lines: true },
-    });
-
-    if (!originalSale) {
-      return reply.status(404).send({ error: "Sale not found" });
-    }
-
-    if (originalSale.status === "REFUNDED") {
-      return reply.status(400).send({ error: "Sale already refunded" });
-    }
-
-    try {
-      const result = await prisma.$transaction(async (tx) => {
-        // Update original sale status
-        await tx.sale.update({
-          where: { id },
-          data: { status: "REFUNDED" },
-        });
-
-        // Return stock to batches
-        for (const line of originalSale.lines) {
-          if (line.batchId) {
-            await tx.batch.update({
-              where: { id: line.batchId },
-              data: {
-                qtyOnHand: {
-                  increment: line.qty,
-                },
-              },
-            });
-
-            // Create return stock movement
-            await tx.stockMovement.create({
-              data: {
-                productId: line.productId,
-                batchId: line.batchId,
-                type: "RETURN",
-                qty: line.qty,
-                refTable: "sales",
-                refId: id,
-                userId: user.id,
-              },
-            });
-          }
-        }
-
-        // Log audit
-        await tx.auditLog.create({
-          data: {
-            actorId: user.id,
-            action: "UPDATE",
-            entity: "sales",
-            entityId: id,
-            diff: { status: "REFUNDED" },
-          },
-        });
-
-        return originalSale;
+      const originalSale = await prisma.sale.findUnique({
+        where: { id },
+        include: { lines: true },
       });
 
-      return {
-        sale: {
-          ...result,
-          subtotal: Number(result.subtotal),
-          taxTotal: Number(result.taxTotal),
-          discountTotal: Number(result.discountTotal),
-          total: Number(result.total),
-          paid: Number(result.paid),
-          change: Number(result.change),
-          lines: result.lines.map(line => ({
-            ...line,
-            unitPrice: Number(line.unitPrice),
-            taxRate: Number(line.taxRate),
-            discount: Number(line.discount),
-            lineTotal: Number(line.lineTotal),
-          })),
-        },
-        message: "Sale refunded successfully"
-      };
-    } catch (error: any) {
-      server.log.error(error);
-      return reply.status(500).send({ error: "Failed to refund sale" });
+      if (!originalSale) {
+        return reply.status(404).send({ error: "Sale not found" });
+      }
+
+      if (originalSale.status === "REFUNDED") {
+        return reply.status(400).send({ error: "Sale already refunded" });
+      }
+
+      try {
+        const result = await prisma.$transaction(async (tx) => {
+          // Update original sale status
+          await tx.sale.update({
+            where: { id },
+            data: { status: "REFUNDED" },
+          });
+
+          // Return stock to batches
+          for (const line of originalSale.lines) {
+            if (line.batchId) {
+              await tx.batch.update({
+                where: { id: line.batchId },
+                data: {
+                  qtyOnHand: {
+                    increment: line.qty,
+                  },
+                },
+              });
+
+              // Create return stock movement
+              await tx.stockMovement.create({
+                data: {
+                  productId: line.productId,
+                  batchId: line.batchId,
+                  type: "RETURN",
+                  qty: line.qty,
+                  refTable: "sales",
+                  refId: id,
+                  userId: user.id,
+                },
+              });
+            }
+          }
+
+          // Log audit
+          await tx.auditLog.create({
+            data: {
+              actorId: user.id,
+              action: "UPDATE",
+              entity: "sales",
+              entityId: id,
+              diff: { status: "REFUNDED" },
+            },
+          });
+
+          return originalSale;
+        });
+
+        return {
+          sale: {
+            ...result,
+            subtotal: Number(result.subtotal),
+            taxTotal: Number(result.taxTotal),
+            discountTotal: Number(result.discountTotal),
+            total: Number(result.total),
+            paid: Number(result.paid),
+            change: Number(result.change),
+            lines: result.lines.map((line) => ({
+              ...line,
+              unitPrice: Number(line.unitPrice),
+              taxRate: Number(line.taxRate),
+              discount: Number(line.discount),
+              lineTotal: Number(line.lineTotal),
+            })),
+          },
+          message: "Sale refunded successfully",
+        };
+      } catch (error: any) {
+        server.log.error(error);
+        return reply.status(500).send({ error: "Failed to refund sale" });
+      }
     }
-  });
+  );
 
   // Get sales list with pagination
   server.get("/", { preHandler: authenticate }, async (request, reply) => {
-    const { page = 1, limit = 20, status, startDate, endDate } = request.query as {
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      startDate,
+      endDate,
+    } = request.query as {
       page?: number;
       limit?: number;
       status?: string;
@@ -383,7 +400,7 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
     ]);
 
     return {
-      sales: sales.map(sale => ({
+      sales: sales.map((sale) => ({
         ...sale,
         subtotal: Number(sale.subtotal),
         taxTotal: Number(sale.taxTotal),
@@ -391,7 +408,7 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
         total: Number(sale.total),
         paid: Number(sale.paid),
         change: Number(sale.change),
-        lines: sale.lines.map(line => ({
+        lines: sale.lines.map((line) => ({
           ...line,
           unitPrice: Number(line.unitPrice),
           taxRate: Number(line.taxRate),
@@ -407,7 +424,12 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
 
   // Get sales history for forecasting (used by Python service)
   server.post("/history", async (request, reply) => {
-    const { storeId, skus, days, period = "month" } = request.body as {
+    const {
+      storeId,
+      skus,
+      days,
+      period = "month",
+    } = request.body as {
       storeId: string;
       skus: string[];
       days?: number;
@@ -459,17 +481,17 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
       const history: Record<string, number[]> = {};
 
       // Initialize arrays for each SKU
-      skus.forEach(sku => {
+      skus.forEach((sku) => {
         history[sku] = [];
       });
 
       // Group sales by date
       const salesByDate: Record<string, Record<string, number>> = {};
 
-      sales.forEach(sale => {
+      sales.forEach((sale) => {
         const date = sale.createdAt.toISOString().split("T")[0];
 
-        sale.lines.forEach(line => {
+        sale.lines.forEach((line) => {
           const sku = line.product.sku;
 
           if (!salesByDate[date]) {
@@ -487,14 +509,14 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
       // Convert to daily arrays
       const dates = Object.keys(salesByDate).sort();
 
-      dates.forEach(date => {
-        skus.forEach(sku => {
+      dates.forEach((date) => {
+        skus.forEach((sku) => {
           history[sku].push(salesByDate[date][sku] || 0);
         });
       });
 
       // If no sales data, return empty arrays
-      skus.forEach(sku => {
+      skus.forEach((sku) => {
         if (history[sku].length === 0) {
           // Return at least 7 days of zeros to avoid division by zero
           history[sku] = new Array(7).fill(0);
@@ -505,7 +527,7 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
         history,
         days: dates.length || 7,
         analysisDays,
-        period
+        period,
       };
     } catch (error: any) {
       server.log.error(error);

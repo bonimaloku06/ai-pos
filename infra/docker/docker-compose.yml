@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: pharmacy123
       POSTGRES_DB: pharmacy_pos
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +22,7 @@ services:
     image: redis:7-alpine
     container_name: pharmacy-pos-redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6380}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -35,10 +35,10 @@ services:
     image: getmeili/meilisearch:v1.10
     container_name: pharmacy-pos-search
     environment:
-      MEILI_MASTER_KEY: masterKey123456
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-masterKeyForDevelopment123}
       MEILI_ENV: development
     ports:
-      - "7700:7700"
+      - "${MEILI_PORT:-7701}:7700"
     volumes:
       - meilisearch_data:/meili_data
     healthcheck:
@@ -54,8 +54,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin123
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_API_PORT:-9100}:9000"
+      - "${MINIO_CONSOLE_PORT:-9101}:9001"
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
@@ -69,7 +69,7 @@ services:
     image: prom/prometheus:latest
     container_name: pharmacy-pos-prometheus
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9091}:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -85,7 +85,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin123
       GF_INSTALL_PLUGINS: grafana-piechart-panel
     ports:
-      - "3001:3000"
+      - "${GRAFANA_PORT:-3002}:3000"
     volumes:
       - grafana_data:/var/lib/grafana
     depends_on:
@@ -95,8 +95,8 @@ services:
     image: mailhog/mailhog:latest
     container_name: pharmacy-pos-mail
     ports:
-      - "1025:1025"  # SMTP
-      - "8025:8025"  # Web UI
+      - "${MAILHOG_SMTP_PORT:-1026}:1025"  # SMTP
+      - "${MAILHOG_UI_PORT:-8026}:8025"  # Web UI
 
 volumes:
   postgres_data:

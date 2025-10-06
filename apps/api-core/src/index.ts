@@ -4,6 +4,8 @@ import helmet from "@fastify/helmet";
 import jwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
+import swagger from "@fastify/swagger";
+import swaggerUi from "@fastify/swagger-ui";
 import { config } from "./config.js";
 import { logger } from "./utils/logger.js";
 import { initializeProductIndex } from "./lib/meilisearch.js";
@@ -30,6 +32,68 @@ import { taxClassRoutes } from "./routes/tax-classes.js";
 
 const server = Fastify({
   logger: true,
+});
+
+// Register Swagger for API documentation
+await server.register(swagger, {
+  openapi: {
+    openapi: "3.0.0",
+    info: {
+      title: "Pharmacy POS API",
+      description: "AI-Powered Pharmacy Point of Sale & Inventory Management System API",
+      version: "1.0.0",
+      contact: {
+        name: "API Support",
+        email: "support@pharmacy-pos.com"
+      },
+    },
+    servers: [
+      {
+        url: `http://localhost:${config.port}`,
+        description: "Development server",
+      },
+      {
+        url: "https://api.pharmacy-pos.com",
+        description: "Production server",
+      },
+    ],
+    tags: [
+      { name: "Auth", description: "Authentication endpoints" },
+      { name: "Products", description: "Product management" },
+      { name: "Batches", description: "Batch/lot tracking" },
+      { name: "Sales", description: "POS and sales operations" },
+      { name: "Suppliers", description: "Supplier management" },
+      { name: "Purchase Orders", description: "Purchase order management" },
+      { name: "GRN", description: "Goods receipt notes" },
+      { name: "Pricing", description: "Pricing rules and calculations" },
+      { name: "Replenishment", description: "AI-powered reorder suggestions" },
+      { name: "Reports", description: "Business reports and analytics" },
+      { name: "Users", description: "User management" },
+      { name: "Stores", description: "Store management" },
+      { name: "Audit Logs", description: "Audit trail" },
+      { name: "Active Ingredients", description: "Active ingredient catalog" },
+      { name: "Tax Classes", description: "Tax class management" },
+    ],
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT",
+        },
+      },
+    },
+  },
+});
+
+await server.register(swaggerUi, {
+  routePrefix: "/docs",
+  uiConfig: {
+    docExpansion: "list",
+    deepLinking: true,
+  },
+  staticCSP: true,
+  transformStaticCSP: (header) => header,
 });
 
 // Register plugins
@@ -120,6 +184,7 @@ const start = async () => {
 
     await server.listen({ port: config.port, host: "0.0.0.0" });
     console.log(`Server listening on http://localhost:${config.port}`);
+    console.log(`API Documentation available at http://localhost:${config.port}/docs`);
   } catch (err) {
     server.log.error(err);
     process.exit(1);

@@ -188,7 +188,12 @@ class ApiClient {
     });
   }
 
-  async getGRNHistory(params?: { page?: number; limit?: number; supplierId?: string; productId?: string }) {
+  async getGRNHistory(params?: {
+    page?: number;
+    limit?: number;
+    supplierId?: string;
+    productId?: string;
+  }) {
     const searchParams = new URLSearchParams();
     if (params?.page) searchParams.set("page", params.page.toString());
     if (params?.limit) searchParams.set("limit", params.limit.toString());
@@ -296,6 +301,52 @@ class ApiClient {
       method: "POST",
       body: JSON.stringify({ grnNumber }),
     });
+  }
+
+  // Reorder Suggestions
+  async getReorderSuggestions(params?: { storeId?: string; status?: string; productId?: string }) {
+    const searchParams = new URLSearchParams();
+    if (params?.storeId) searchParams.set("storeId", params.storeId);
+    if (params?.status) searchParams.set("status", params.status);
+    if (params?.productId) searchParams.set("productId", params.productId);
+
+    return this.request<{ suggestions: any[] }>(`/reorder-suggestions?${searchParams}`);
+  }
+
+  async generateReorderSuggestions(data: any) {
+    return this.request<{ message: string; suggestions: any[]; summary: any }>(
+      "/reorder-suggestions/generate",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  async approveReorderSuggestions(data: { suggestionIds: string[]; generatePO?: boolean }) {
+    return this.request<{ message: string; purchaseOrders: any[] }>(
+      "/reorder-suggestions/approve",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  async rejectReorderSuggestions(data: { suggestionIds: string[] }) {
+    return this.request<{ message: string }>("/reorder-suggestions/reject", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async clearReorderSuggestions(storeId: string) {
+    return this.request<{ message: string; deletedCount: number }>(
+      `/reorder-suggestions/clear?storeId=${storeId}`,
+      {
+        method: "DELETE",
+      }
+    );
   }
 
   // Reports

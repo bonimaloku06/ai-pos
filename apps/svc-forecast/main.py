@@ -6,8 +6,11 @@ import os
 from dotenv import load_dotenv
 import httpx
 from math import sqrt
+from pathlib import Path
 
-load_dotenv()
+# Load .env from the forecast service directory (not root)
+env_path = Path(__file__).parent / '.env'
+load_dotenv(dotenv_path=env_path, override=True)
 
 app = FastAPI(
     title="Pharmacy Forecast Service",
@@ -15,8 +18,16 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Force correct API_CORE_URL (override any parent .env)
 API_CORE_URL = os.getenv("API_CORE_URL", "http://localhost:4000")
+if "3000" in API_CORE_URL:
+    print(f"[WARNING] Detected wrong API_CORE_URL: {API_CORE_URL}, fixing to port 4000")
+    API_CORE_URL = "http://localhost:4000"
 API_CORE_TOKEN = os.getenv("API_CORE_TOKEN", "")
+
+# Verify environment variables
+print(f"[STARTUP] API_CORE_URL: {API_CORE_URL}")
+print(f"[STARTUP] API_CORE_TOKEN configured: {'Yes' if API_CORE_TOKEN else 'No'}")
 
 
 # Request/Response Models
@@ -74,27 +85,38 @@ class SimulateResponse(BaseModel):
 async def fetch_sales_history(store_id: str, skus: List[str], days: int = 30) -> Dict[str, List[float]]:
     """Fetch sales history from api-core with custom period"""
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{API_CORE_URL}/sales/history",
-                json={
-                    "storeId": store_id,
-                    "skus": skus,
-                    "days": days
-                },
-                timeout=10.0
-            )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                response = await client.post(
+                    f"{API_CORE_URL}/sales/history",
+                    json={
+                        "storeId": store_id,
+                        "skus": skus,
+                        "days": days
+                    },
+                    timeout=30.0
+                )
 
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("history", {})
-            else:
-                print(f"Failed to fetch sales history: {response.status_code}")
-                # Fallback to mock data if API fails
-                return {sku: [10, 12, 8, 15, 11, 9, 13] * 4 for sku in skus}
+                if response.status_code == 200:
+                    data = response.json()
+                    return data.get("history", {})
+                else:
+                    print(f"Failed to fetch sales history: {response.status_code}")
+                    print(f"Response: {response.text[:200]}")
+                    # Fallback to mock data if API fails
+                    return {sku: [10, 12, 8, 15, 11, 9, 13] * 4 for sku in skus}
+            except httpx.ConnectError as e:
+                print(f"Connection error to API Core: {e}")
+                print(f"Is API Core running on {API_CORE_URL}?")
+                print(f"Attempted URL: {API_CORE_URL}/sales/history")
+                raise
 
     except Exception as e:
         print(f"Error fetching sales history: {e}")
+        print(f"Exception type: {type(e).__name__}")
+        print(f"API_CORE_URL: {API_CORE_URL}")
+        if hasattr(e, '__cause__'):
+            print(f"Cause: {e.__cause__}")
         # Fallback to mock data if API fails
         return {sku: [10, 12, 8, 15, 11, 9, 13] * 4 for sku in skus}
 
@@ -439,7 +461,401 @@ async def get_metrics():
     }
 
 
+# ==============================================================================
+# V3 API - Advanced Forecasting with ML
+# ==============================================================================
+
+from forecast_engine import ForecastEngine
+from supplier_engine import SupplierSchedule, SupplierOptimizer, PricingEngine
+from coverage_calculator import CoverageCalculator
+
+
+# V3 Request/Response Models
+class V3RecommendationRequest(BaseModel):
+    storeId: str
+    skus: List[str]
+    currentStock: Dict[str, int]  # {sku: quantity}
+    supplierPrices: Dict[str, Dict[str, float]] = {}  # {sku: {supplier_id: price}}
+    coverageDays: int = 7  # Default 1 week
+    includeAnalysis: bool = True
+    analysisPeriodDays: int = 30
+
+
+class V3ProductRecommendation(BaseModel):
+    sku: str
+    currentStock: int
+    daysRemaining: float
+    urgency: str  # CRITICAL, HIGH, MEDIUM, LOW, GOOD
+    pattern: str  # STEADY, GROWING, DECLINING, SEASONAL, ERRATIC
+    patternConfidence: float
+    trend: Dict[str, Any]
+    forecastedDailyDemand: float
+    recommendedOrderQty: int
+    coverageScenarios: List[Dict[str, Any]]
+    supplierOptions: List[Dict[str, Any]]
+    recommendation: Dict[str, Any]
+
+
+class V3RecommendationResponse(BaseModel):
+    recommendations: List[Dict[str, Any]]
+    generatedAt: str
+    summary: Dict[str, Any]
+
+
+class CoverageScenarioRequest(BaseModel):
+    sku: str
+    currentStock: int
+    dailyDemand: float
+    customPeriods: Optional[List[int]] = None
+    unitPrice: float
+    includeSupplierComparison: bool = False
+    supplierPrices: Optional[Dict[str, float]] = None  # {supplier_id: price}
+
+
+class SupplierComparisonRequest(BaseModel):
+    sku: str
+    currentStock: int
+    dailyDemand: float
+    orderQuantity: int
+    supplierPrices: Dict[str, float]  # {supplier_id: price}
+
+
+class DailyActionListRequest(BaseModel):
+    storeId: str
+    products: List[Dict[str, Any]]  # [{sku, currentStock, dailyDemand, supplierPrices}]
+
+
+# Initialize engines
+forecast_engine = ForecastEngine()
+supplier_schedule = SupplierSchedule()
+pricing_engine = PricingEngine()
+supplier_optimizer = SupplierOptimizer(supplier_schedule, pricing_engine)
+coverage_calculator = CoverageCalculator()
+
+
+@app.post("/v3/recommendations", response_model=V3RecommendationResponse)
+async def generate_v3_recommendations(req: V3RecommendationRequest):
+    """
+    V3 Advanced Recommendations with ML Forecasting
+    
+    Features:
+    - Time series forecasting (seasonal, trend)
+    - Multi-supplier optimization
+    - Coverage scenarios (1 day, 1 week, 1 month)
+    - Pattern classification
+    - Smart timing recommendations
+    """
+    try:
+        # Fetch sales history
+        sales_history = await fetch_sales_history(
+            req.storeId,
+            req.skus,
+            req.analysisPeriodDays
+        )
+        
+        recommendations = []
+        
+        for sku in req.skus:
+            history = sales_history.get(sku, [])
+            if not history or len(history) < 3:
+                continue
+            
+            current_stock = req.currentStock.get(sku, 0)
+            
+            # Step 1: Forecast Analysis
+            if req.includeAnalysis:
+                forecast_result = forecast_engine.analyze(history)
+                pattern = forecast_result['classification']['pattern']
+                confidence = forecast_result['classification']['confidence']
+                trend = forecast_result['trend']
+                forecasted_demand = forecast_result['forecast']['daily_average']
+            else:
+                # Fallback to simple average
+                forecasted_demand = sum(history) / len(history)
+                pattern = 'STEADY'
+                confidence = 0.7
+                trend = {'direction': 'STEADY', 'slope': 0}
+            
+            # Step 2: Calculate Coverage
+            current_coverage = coverage_calculator.calculate_current_coverage(
+                current_stock,
+                forecasted_demand
+            )
+            
+            # Step 3: Generate Coverage Scenarios
+            scenarios = coverage_calculator.generate_scenarios(
+                current_stock,
+                forecasted_demand,
+                custom_periods=[1, 7, 14, 30]
+            )
+            
+            # Step 4: Get recommended order quantity
+            recommended_scenario = coverage_calculator.recommend_scenario(
+                current_stock,
+                forecasted_demand,
+                demand_pattern=pattern,
+                lead_time_days=7  # Default
+            )
+            
+            # Step 5: Supplier Optimization (if prices provided)
+            supplier_options = []
+            if sku in req.supplierPrices and req.supplierPrices[sku]:
+                # Set prices in pricing engine
+                for supplier_id, price in req.supplierPrices[sku].items():
+                    pricing_engine.set_price(sku, supplier_id, price)
+                
+                # Find optimal supplier
+                supplier_comparison = supplier_optimizer.compare_suppliers(
+                    sku,
+                    current_stock,
+                    forecasted_demand,
+                    recommended_scenario['order_quantity']
+                )
+                
+                supplier_options = supplier_comparison['all_options']
+            
+            # Build recommendation
+            recommendations.append({
+                'sku': sku,
+                'currentStock': current_stock,
+                'daysRemaining': current_coverage['days_remaining'],
+                'urgency': current_coverage['status'],
+                'pattern': pattern,
+                'patternConfidence': confidence,
+                'trend': trend,
+                'forecastedDailyDemand': round(forecasted_demand, 2),
+                'recommendedOrderQty': recommended_scenario['order_quantity'],
+                'recommendedCoverageDays': recommended_scenario['recommended_coverage_days'],
+                'coverageScenarios': scenarios['scenarios'],
+                'supplierOptions': supplier_options,
+                'recommendation': {
+                    'message': current_coverage['message'],
+                    'action': _determine_action(current_coverage['status']),
+                    'reason': recommended_scenario['reason']
+                }
+            })
+        
+        # Create summary
+        critical_count = sum(1 for r in recommendations if r['urgency'] in ['CRITICAL', 'URGENT'])
+        low_count = sum(1 for r in recommendations if r['urgency'] == 'LOW')
+        good_count = sum(1 for r in recommendations if r['urgency'] in ['GOOD', 'OVERSTOCKED'])
+        
+        summary = {
+            'totalProducts': len(recommendations),
+            'criticalProducts': critical_count,
+            'lowStockProducts': low_count,
+            'goodStockProducts': good_count,
+            'analysisPeriodDays': req.analysisPeriodDays
+        }
+        
+        return V3RecommendationResponse(
+            recommendations=recommendations,
+            generatedAt=datetime.now().isoformat(),
+            summary=summary
+        )
+    
+    except Exception as e:
+        import traceback
+        print(f"ERROR in v3/recommendations: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _determine_action(urgency: str) -> str:
+    """Determine action based on urgency"""
+    if urgency in ['CRITICAL', 'URGENT']:
+        return 'ORDER_TODAY'
+    elif urgency == 'LOW':
+        return 'ORDER_SOON'
+    elif urgency == 'GOOD':
+        return 'MONITOR'
+    else:
+        return 'REDUCE_ORDERS'
+
+
+@app.post("/v3/coverage-scenarios")
+async def get_coverage_scenarios(req: CoverageScenarioRequest):
+    """
+    Get coverage scenarios for a product
+    
+    Returns order quantities and costs for different coverage periods
+    """
+    try:
+        # Generate scenarios with pricing
+        result = coverage_calculator.calculate_with_pricing(
+            req.currentStock,
+            req.dailyDemand,
+            req.unitPrice,
+            req.customPeriods
+        )
+        
+        # Add supplier comparison if requested
+        supplier_comparison = None
+        if req.includeSupplierComparison and req.supplierPrices:
+            supplier_comparison = coverage_calculator.compare_suppliers_coverage(
+                req.currentStock,
+                req.dailyDemand,
+                7,  # 1 week default for comparison
+                req.supplierPrices
+            )
+        
+        return {
+            'sku': req.sku,
+            'currentCoverage': result['current_coverage'],
+            'scenarios': result['scenarios'],
+            'supplierComparison': supplier_comparison,
+            'generatedAt': datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v3/supplier-comparison")
+async def compare_suppliers(req: SupplierComparisonRequest):
+    """
+    Compare suppliers for a product order
+    
+    Returns optimal supplier based on cost, timing, and risk
+    """
+    try:
+        # Set prices
+        for supplier_id, price in req.supplierPrices.items():
+            pricing_engine.set_price(req.sku, supplier_id, price)
+        
+        # Get comparison
+        result = supplier_optimizer.compare_suppliers(
+            req.sku,
+            req.currentStock,
+            req.dailyDemand,
+            req.orderQuantity
+        )
+        
+        return {
+            'sku': req.sku,
+            'recommended': result['recommended'],
+            'allOptions': result['all_options'],
+            'maxSavings': result['max_savings'],
+            'maxSavingsPercent': result['max_savings_percent'],
+            'generatedAt': datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v3/daily-action-list")
+async def get_daily_action_list(req: DailyActionListRequest):
+    """
+    Generate daily action list categorized by urgency
+    
+    Returns:
+    - ORDER_TODAY: Critical/urgent items
+    - ORDER_SOON: Low stock items
+    - MONITOR: Good stock items
+    - REDUCE_ORDERS: Overstocked items
+    """
+    try:
+        action_list = {
+            'ORDER_TODAY': [],
+            'ORDER_SOON': [],
+            'MONITOR': [],
+            'REDUCE_ORDERS': []
+        }
+        
+        for product in req.products:
+            sku = product['sku']
+            current_stock = product['currentStock']
+            daily_demand = product['dailyDemand']
+            
+            # Calculate coverage
+            coverage = coverage_calculator.calculate_current_coverage(
+                current_stock,
+                daily_demand
+            )
+            
+            # Determine action
+            action = _determine_action(coverage['status'])
+            
+            # Get supplier options if prices provided
+            supplier_options = []
+            if 'supplierPrices' in product and product['supplierPrices']:
+                for supplier_id, price in product['supplierPrices'].items():
+                    pricing_engine.set_price(sku, supplier_id, price)
+                
+                supplier_comparison = supplier_optimizer.compare_suppliers(
+                    sku,
+                    current_stock,
+                    daily_demand,
+                    int(daily_demand * 7)  # 1 week default
+                )
+                supplier_options = supplier_comparison['all_options']
+            
+            # Add to appropriate list
+            action_list[action].append({
+                'sku': sku,
+                'currentStock': current_stock,
+                'daysRemaining': coverage['days_remaining'],
+                'urgency': coverage['status'],
+                'message': coverage['message'],
+                'supplierOptions': supplier_options
+            })
+        
+        return {
+            'storeId': req.storeId,
+            'actionList': action_list,
+            'summary': {
+                'orderToday': len(action_list['ORDER_TODAY']),
+                'orderSoon': len(action_list['ORDER_SOON']),
+                'monitor': len(action_list['MONITOR']),
+                'reduceOrders': len(action_list['REDUCE_ORDERS'])
+            },
+            'generatedAt': datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Test API Core connectivity on startup"""
+    print("=" * 60)
+    print("Testing API Core connectivity...")
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{API_CORE_URL}/health")
+            if response.status_code == 200:
+                print(f"✓ API Core reachable at {API_CORE_URL}")
+            else:
+                print(f"✗ API Core returned status {response.status_code}")
+    except Exception as e:
+        print(f"✗ Cannot reach API Core: {e}")
+        print(f"  Make sure API Core is running on {API_CORE_URL}")
+    print("=" * 60)
+
+
+@app.get("/v3/health")
+async def v3_health_check():
+    """Health check for V3 API with engine status"""
+    return {
+        'status': 'ok',
+        'version': 'v3',
+        'engines': {
+            'forecast': 'initialized',
+            'supplier': 'initialized',
+            'coverage': 'initialized'
+        },
+        'suppliers': [s.to_dict() for s in supplier_schedule.list_suppliers()],
+        'timestamp': datetime.now().isoformat()
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "8000"))
+    # Use FORECAST_PORT or default to 8000 (avoid conflict with API_CORE_PORT)
+    port = int(os.getenv("FORECAST_PORT", os.getenv("PORT", "8000")))
+    if port == 4000:  # If root .env PORT=4000, use 8000 for forecast
+        port = 8000
+    print(f"Starting Forecast Service on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)

@@ -99,13 +99,13 @@ docker-compose up -d
 \`\`\`
 
 This starts:
-- PostgreSQL (port 5432)
-- Redis (port 6379)
-- Meilisearch (port 7700)
-- MinIO (ports 9000, 9001)
-- Prometheus (port 9090)
-- Grafana (port 3001)
-- Mailhog (ports 1025, 8025)
+- PostgreSQL (port 5433)
+- Redis (port 6380)
+- Meilisearch (port 7701)
+- MinIO (ports 9100, 9101)
+- Prometheus (port 9091)
+- Grafana (port 3003)
+- Mailhog (ports 1026, 8026)
 
 4. **Set up the database:**
 
@@ -116,41 +116,34 @@ pnpm db:migrate       # Run migrations
 pnpm db:seed          # Seed example data (optional)
 \`\`\`
 
-5. **Start development servers:**
-
-In separate terminals:
-
-\`\`\`bash
-# Terminal 1: API Core
-cd apps/api-core
-pnpm dev              # http://localhost:3000
-
-# Terminal 2: Web App
-cd apps/web
-pnpm dev              # http://localhost:5173
-
-# Terminal 3: Forecast Service
-cd apps/svc-forecast
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\\Scripts\\activate
-pip install -r requirements.txt
-python main.py        # http://localhost:8000
-\`\`\`
-
-Or use Turborepo to run all together:
+5. **Start all services:**
 
 \`\`\`bash
 pnpm dev
 \`\`\`
 
+This single command starts **everything**:
+- ✅ Docker services (PostgreSQL, Redis, Meilisearch, etc.)
+- ✅ Python AI forecast service (port 8000)
+- ✅ API Core (port 4000)  
+- ✅ Web App (port 5173)
+
+**To stop all services:**
+
+\`\`\`bash
+pnpm stop
+\`\`\`
+
+See [ONE_COMMAND_START.md](ONE_COMMAND_START.md) for details.
+
 6. **Access the application:**
 
 - **Web App**: http://localhost:5173
-- **API Core**: http://localhost:3000
+- **API Core**: http://localhost:4000
 - **Forecast Service**: http://localhost:8000
-- **Grafana**: http://localhost:3001 (admin/admin123)
-- **Meilisearch**: http://localhost:7700
-- **MinIO Console**: http://localhost:9001 (minioadmin/minioadmin123)
+- **Grafana**: http://localhost:3003 (admin/admin123)
+- **Meilisearch**: http://localhost:7701
+- **MinIO Console**: http://localhost:9101 (minioadmin/minioadmin123)
 
 ## Project Structure
 
