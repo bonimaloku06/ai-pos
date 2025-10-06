@@ -1,7 +1,10 @@
 import { FastifyPluginAsync } from "fastify";
 import { prisma } from "../lib/prisma.js";
 import { authenticate } from "../middleware/auth.js";
-import type { GenerateReorderSuggestionsRequest, ApproveReorderSuggestionsRequest } from "shared-types";
+import type {
+  GenerateReorderSuggestionsRequest,
+  ApproveReorderSuggestionsRequest,
+} from "shared-types";
 
 export const reorderSuggestionRoutes: FastifyPluginAsync = async (server) => {
   // List reorder suggestions
@@ -68,9 +71,12 @@ export const reorderSuggestionRoutes: FastifyPluginAsync = async (server) => {
     return { suggestion };
   });
 
-  // Generate new suggestions (calls forecast service)
+  // Generate new suggestions (calls V3 forecast service with ML)
   server.post("/generate", { preHandler: authenticate }, async (request, reply) => {
-    const body = request.body as GenerateReorderSuggestionsRequest;
+    const body = request.body as GenerateReorderSuggestionsRequest & {
+      coverageDays?: number;
+      includeSupplierComparison?: boolean;
+    };
     const user = (request as any).user;
 
     // Validate store
@@ -86,65 +92,88 @@ export const reorderSuggestionRoutes: FastifyPluginAsync = async (server) => {
     }
 
     const serviceLevel = body.serviceLevel || store.forecastParams[0]?.serviceLevel || 0.95;
+    const coverageDays = body.coverageDays || 7; // Default 1 week coverage
 
-    // Calculate year-to-date days (from January 1 to today)
-    const today = new Date();
-    const startOfYear = new Date(today.getFullYear(), 0, 1);
-    const analysisPeriodDays = Math.ceil((today.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24));
-
-    // Get all active products with their current stock
+    // Get all active products with their current stock and supplier info
     const products = await prisma.product.findMany({
       where: { status: "ACTIVE" },
       include: {
         batches: {
           where: { storeId: body.storeId },
+          include: {
+            supplier: true,
+          },
+        },
+        productSuppliers: {
+          include: {
+            supplier: {
+              select: {
+                id: true,
+                name: true,
+                leadTimeDays: true,
+              },
+            },
+          },
         },
       },
     });
 
-    // Get supplier lead times
+    // Get all suppliers for price comparison
     const suppliers = await prisma.supplier.findMany({
       where: { isActive: true },
     });
 
-    // Prepare request for forecast service
+    // Prepare V3 request
     const skus = products.map((p) => p.sku);
-    const leadTimes: Record<string, number> = {};
     const currentStock: Record<string, number> = {};
+    const supplierPrices: Record<string, Record<string, number>> = {};
+    const productSuppliers: Record<string, string> = {}; // Track primary supplier per product
 
-    // Map products to suppliers and calculate current stock
-    const productSuppliers: Record<string, string> = {};
     for (const product of products) {
-      const supplierId = product.batches[0]?.supplierId;
-      if (supplierId) {
-        productSuppliers[product.sku] = supplierId;
-        const supplier = suppliers.find((s) => s.id === supplierId);
-        if (supplier) {
-          leadTimes[product.sku] = supplier.leadTimeDays;
+      // Calculate current stock from batches
+      currentStock[product.sku] = product.batches.reduce((sum, b) => sum + b.qtyOnHand, 0);
+
+      // Get supplier prices for this product
+      supplierPrices[product.sku] = {};
+
+      // Primary supplier (from first batch)
+      const primarySupplier = product.batches[0]?.supplier;
+      if (primarySupplier) {
+        productSuppliers[product.sku] = primarySupplier.id;
+        supplierPrices[product.sku][primarySupplier.name.toLowerCase()] = Number(
+          product.batches[0]?.unitCost || 0
+        );
+      }
+
+      // Additional suppliers from productSuppliers
+      if (product.productSuppliers && product.productSuppliers.length > 0) {
+        for (const sp of product.productSuppliers) {
+          const supplierName = sp.supplier.name.toLowerCase();
+          supplierPrices[product.sku][supplierName] = Number(sp.unitCost || 0);
+
+          // If no primary supplier, use first available
+          if (!productSuppliers[product.sku]) {
+            productSuppliers[product.sku] = sp.supplier.id;
+          }
         }
       }
-      // Calculate current stock from batches (REAL INVENTORY DATA)
-      currentStock[product.sku] = product.batches.reduce((sum, b) => sum + b.qtyOnHand, 0);
     }
 
-    // Call forecast service (using enhanced v2 endpoint)
+    // Call V3 forecast service with ML analysis
     const forecastServiceUrl = process.env.FORECAST_SVC_URL || "http://localhost:8000";
 
     try {
-      const zScore = serviceLevel >= 0.99 ? 2.33 : serviceLevel >= 0.95 ? 1.65 : 1.28;
-
-      const response = await fetch(`${forecastServiceUrl}/recommendations-v2`, {
+      const response = await fetch(`${forecastServiceUrl}/v3/recommendations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           storeId: body.storeId,
-          asOf: new Date().toISOString(),
           skus,
-          leadTimes,
-          currentStock, // Pass real stock data to Python service
-          serviceLevel: Number(serviceLevel),
-          analysisPeriodDays,
-          zScore,
+          currentStock,
+          supplierPrices,
+          coverageDays,
+          includeAnalysis: true,
+          analysisPeriodDays: 30, // Last 30 days for ML analysis
         }),
       });
 
@@ -154,45 +183,66 @@ export const reorderSuggestionRoutes: FastifyPluginAsync = async (server) => {
 
       const data = await response.json();
 
-      // Save suggestions to database (with enhanced data)
+      // Save suggestions to database with V3 enhanced data
       const savedSuggestions = [];
-      for (const suggestion of data.suggestions) {
-        const product = products.find((p) => p.sku === suggestion.sku);
+
+      for (const rec of data.recommendations) {
+        const product = products.find((p) => p.sku === rec.sku);
         if (!product) continue;
 
-        const currentStock = suggestion.currentStock;
+        // Get best supplier option
+        const bestSupplier = rec.supplierOptions?.[0];
+        const supplierId = bestSupplier
+          ? suppliers.find((s) => s.name.toLowerCase() === bestSupplier.supplier_name.toLowerCase())
+              ?.id
+          : productSuppliers[rec.sku];
 
-        // Convert nextDeliveryDate to proper Date object if present
+        // Parse delivery date
         let nextDeliveryDate = null;
-        if (suggestion.nextDeliveryDate) {
-          // Handle Python datetime string (may be missing timezone indicator)
-          const dateStr = suggestion.nextDeliveryDate;
-          // If no timezone indicator (Z or +/-), add Z to treat as UTC
-          const hasTimezone = dateStr.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(dateStr);
-          nextDeliveryDate = new Date(hasTimezone ? dateStr : dateStr + "Z");
+        if (bestSupplier?.delivery_date) {
+          nextDeliveryDate = new Date(bestSupplier.delivery_date);
         }
 
-        // Create suggestion for all products (not just below ROP) to show urgency levels
+        // Create comprehensive suggestion
         const saved = await prisma.reorderSuggestion.create({
           data: {
             productId: product.id,
             storeId: body.storeId,
-            supplierId: productSuppliers[suggestion.sku] || null,
-            rop: suggestion.rop,
-            orderQty: suggestion.recommendedQty || suggestion.scenarios?.[1]?.orderQty || 0,
+            supplierId: supplierId || null,
+            rop: rec.rop || 0,
+            orderQty: rec.recommendedOrderQty,
             reason: {
-              ...suggestion.reason,
-              currentStock,
-              meanDemand: suggestion.meanDemand,
-              stdDevDemand: suggestion.stdDevDemand,
-              safetyStock: suggestion.safetyStock,
+              // Current Stock (from real inventory)
+              currentStock: rec.currentStock,
+
+              // ML Analysis
+              pattern: rec.pattern,
+              patternConfidence: rec.patternConfidence,
+              trend: rec.trend,
+              forecastedDemand: rec.forecastedDailyDemand,
+
+              // Urgency
+              urgency: rec.urgency,
+              daysRemaining: rec.daysRemaining,
+              message: rec.recommendation?.message,
+              action: rec.recommendation?.action,
+
+              // Supplier Info
+              recommendedSupplier: bestSupplier?.supplier_name,
+              supplierCost: bestSupplier?.total_cost,
+              deliveryDays: bestSupplier?.days_until_delivery,
+              savings: bestSupplier?.savings_vs_max,
+              savingsPercent: bestSupplier?.savings_percent,
+
+              // Coverage Scenarios
+              coverageScenarios: rec.coverageScenarios,
+              supplierOptions: rec.supplierOptions,
             },
-            // Enhanced fields from v2 endpoint
-            analysisPeriodDays: suggestion.analysisPeriodDays,
-            stockDuration: suggestion.daysRemaining,
-            urgencyLevel: suggestion.urgency,
+            analysisPeriodDays: 30,
+            stockDuration: rec.daysRemaining,
+            urgencyLevel: rec.urgency,
             nextDeliveryDate,
-            scenarios: suggestion.scenarios,
+            scenarios: rec.coverageScenarios,
             status: "PENDING",
           },
           include: {
@@ -200,29 +250,62 @@ export const reorderSuggestionRoutes: FastifyPluginAsync = async (server) => {
             supplier: true,
           },
         });
+
         savedSuggestions.push(saved);
       }
 
-      // Audit log
-      await prisma.auditLog.create({
-        data: {
-          actorId: user.id,
-          action: "CREATE",
-          entity: "reorder_suggestions",
-          entityId: body.storeId,
-          diff: { generated: savedSuggestions.length },
-        },
-      });
+      // Audit log (only if user exists)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            actorId: user.id,
+            action: "CREATE",
+            entity: "reorder_suggestions",
+            entityId: body.storeId,
+            diff: {
+              generated: savedSuggestions.length,
+              summary: data.summary,
+              version: "v3-ml",
+            },
+          },
+        });
+      } catch (auditError) {
+        console.warn("Failed to create audit log:", auditError);
+        // Continue without audit log
+      }
 
       return {
-        message: `Generated ${savedSuggestions.length} reorder suggestions`,
+        message: `Generated ${savedSuggestions.length} AI-powered reorder suggestions`,
         suggestions: savedSuggestions,
+        summary: data.summary,
+        mlVersion: "v3",
       };
     } catch (error: any) {
-      console.error("Forecast service error:", error);
+      server.log.error("Forecast service error:", error);
+      console.error("Full error details:", {
+        message: error.message,
+        stack: error.stack,
+        cause: error.cause,
+      });
+
+      // Check if it's a connection error
+      const isConnectionError =
+        error.message?.includes("fetch failed") || error.cause?.code === "ECONNREFUSED";
+
+      if (isConnectionError) {
+        return reply.status(503).send({
+          error: "Forecast service unavailable",
+          message: "The AI forecast service is not running. Please start it with: pnpm dev",
+          details:
+            "The forecast service must be running on http://localhost:8000 to generate AI-powered reorder suggestions.",
+        });
+      }
+
       return reply.status(500).send({
         error: "Failed to generate suggestions",
         details: error.message,
+        errorType: error.constructor.name,
+        stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
       });
     }
   });
@@ -434,6 +517,45 @@ export const reorderSuggestionRoutes: FastifyPluginAsync = async (server) => {
     });
 
     return reply.status(204).send();
+  });
+
+  // Clear all suggestions for a store
+  server.delete("/clear", { preHandler: authenticate }, async (request, reply) => {
+    const { storeId } = request.query as { storeId?: string };
+    const user = (request as any).user;
+
+    if (!storeId) {
+      return reply.status(400).send({ error: "Store ID is required" });
+    }
+
+    // Delete all suggestions for the store
+    const deletedCount = await prisma.reorderSuggestion.deleteMany({
+      where: { storeId },
+    });
+
+    // Audit log (only if user exists)
+    try {
+      await prisma.auditLog.create({
+        data: {
+          actorId: user.id,
+          action: "DELETE",
+          entity: "reorder_suggestions",
+          entityId: storeId,
+          diff: {
+            deletedCount: deletedCount.count,
+            action: "clear_all_suggestions",
+          },
+        },
+      });
+    } catch (auditError) {
+      console.warn("Failed to create audit log:", auditError);
+      // Continue without audit log
+    }
+
+    return {
+      message: `Cleared ${deletedCount.count} suggestions for store`,
+      deletedCount: deletedCount.count,
+    };
   });
 
   // Calculate stock duration

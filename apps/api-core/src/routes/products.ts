@@ -1,9 +1,52 @@
 import { FastifyPluginAsync } from "fastify";
 import { prisma } from "../lib/prisma.js";
 import { authenticate, authorize } from "../middleware/auth.js";
-import { syncProductToSearch, removeProductFromSearch, searchProducts } from "../lib/meilisearch.js";
+import {
+  syncProductToSearch,
+  removeProductFromSearch,
+  searchProducts,
+} from "../lib/meilisearch.js";
 
 export const productRoutes: FastifyPluginAsync = async (server) => {
+  // Debug endpoint to test Meilisearch connection
+  server.get("/debug-meili", { preHandler: authorize("ADMIN") }, async (request, reply) => {
+    try {
+      const { config } = await import("../config.js");
+      const testProduct = {
+        id: "debug-test-" + Date.now(),
+        name: "Debug Test Product",
+        sku: "DEBUG",
+        barcode: null,
+        description: "Test",
+        activeIngredientName: null,
+        dosage: null,
+        unit: "unit",
+        packSize: 1,
+        categoryId: null,
+        status: "ACTIVE",
+        createdAt: new Date().toISOString(),
+      };
+      
+      await syncProductToSearch(testProduct);
+      
+      return {
+        success: true,
+        message: "Successfully added debug product to Meilisearch",
+        config: {
+          host: config.meilisearch.host,
+          hasApiKey: !!config.meilisearch.apiKey,
+          apiKeyLength: config.meilisearch.apiKey?.length,
+        },
+      };
+    } catch (error: any) {
+      return reply.status(500).send({
+        success: false,
+        error: error.message,
+        stack: error.stack,
+      });
+    }
+  });
+
   // Sync all products to Meilisearch (admin only)
   server.post("/sync-all", { preHandler: authorize("ADMIN") }, async (request, reply) => {
     try {
@@ -13,11 +56,27 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
         },
       });
 
+      let successCount = 0;
+      let failCount = 0;
+      const errors: string[] = [];
+
       for (const product of products) {
-        await syncProductToSearch(product);
+        try {
+          await syncProductToSearch(product);
+          successCount++;
+        } catch (err: any) {
+          failCount++;
+          errors.push(`${product.sku}: ${err.message}`);
+          server.log.error(`Failed to sync ${product.sku}:`, err);
+        }
       }
 
-      return { message: `Synced ${products.length} products to search index` };
+      return {
+        message: `Synced ${successCount} products to search index`,
+        successCount,
+        failCount,
+        errors: errors.slice(0, 5), // Show first 5 errors
+      };
     } catch (error: any) {
       server.log.error(error);
       return reply.status(500).send({ error: "Failed to sync products" });
@@ -26,7 +85,13 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
 
   // Get products with search and pagination
   server.get("/", { preHandler: authenticate }, async (request, reply) => {
-    const { query, page = 1, limit = 20, categoryId, status } = request.query as {
+    const {
+      query,
+      page = 1,
+      limit = 20,
+      categoryId,
+      status,
+    } = request.query as {
       query?: string;
       page?: number;
       limit?: number;
@@ -68,7 +133,7 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
 
         // Sort products by search relevance
         const sortedProducts = productIds
-          .map(id => products.find(p => p.id === id))
+          .map((id) => products.find((p) => p.id === id))
           .filter(Boolean);
 
         return {
@@ -139,11 +204,11 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
     return {
       product: {
         ...product,
-        batches: product.batches.map(batch => ({
+        batches: product.batches.map((batch) => ({
           ...batch,
           unitCost: Number(batch.unitCost),
         })),
-      }
+      },
     };
   });
 
@@ -288,13 +353,17 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
           ...(data.sku !== undefined && { sku: data.sku }),
           ...(data.barcode !== undefined && { barcode: data.barcode }),
           ...(data.description !== undefined && { description: data.description }),
-          ...(data.activeIngredientId !== undefined && { activeIngredientId: data.activeIngredientId }),
+          ...(data.activeIngredientId !== undefined && {
+            activeIngredientId: data.activeIngredientId,
+          }),
           ...(data.dosage !== undefined && { dosage: data.dosage }),
           ...(data.unit !== undefined && { unit: data.unit }),
           ...(data.packSize !== undefined && { packSize: data.packSize }),
           ...(data.categoryId !== undefined && { categoryId: data.categoryId }),
           ...(data.taxClassId !== undefined && { taxClassId: data.taxClassId }),
-          ...(data.defaultRetailPrice !== undefined && { defaultRetailPrice: data.defaultRetailPrice }),
+          ...(data.defaultRetailPrice !== undefined && {
+            defaultRetailPrice: data.defaultRetailPrice,
+          }),
           ...(data.status !== undefined && { status: data.status as any }),
         },
         include: {
@@ -381,10 +450,10 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
     });
 
     return {
-      batches: batches.map(batch => ({
+      batches: batches.map((batch) => ({
         ...batch,
         unitCost: Number(batch.unitCost),
-      }))
+      })),
     };
   });
 };
