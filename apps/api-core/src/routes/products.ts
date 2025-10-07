@@ -9,7 +9,7 @@ import {
 
 export const productRoutes: FastifyPluginAsync = async (server) => {
   // Debug endpoint to test Meilisearch connection
-  server.get("/debug-meili", { preHandler: authorize("ADMIN") }, async (request, reply) => {
+  server.get("/debug-meili", { preHandler: authorize(["ADMIN"]) }, async (request, reply) => {
     try {
       const { config } = await import("../config.js");
       const testProduct = {
@@ -48,7 +48,7 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
   });
 
   // Sync all products to Meilisearch (admin only)
-  server.post("/sync-all", { preHandler: authorize("ADMIN") }, async (request, reply) => {
+  server.post("/sync-all", { preHandler: authorize(["ADMIN"]) }, async (request, reply) => {
     try {
       const products = await prisma.product.findMany({
         include: {
@@ -122,7 +122,7 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
           where: { id: { in: productIds } },
           include: {
             category: true,
-            taxClass: true,
+            vatRate: true,
             activeIngredient: true,
             batches: {
               where: { qtyOnHand: { gt: 0 } },
@@ -154,7 +154,7 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
           where,
           include: {
             category: true,
-            taxClass: true,
+            vatRate: true,
             activeIngredient: true,
             batches: {
               where: { qtyOnHand: { gt: 0 } },
@@ -188,7 +188,7 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
       where: { id },
       include: {
         category: true,
-        taxClass: true,
+        vatRate: true,
         activeIngredient: true,
         batches: {
           where: { qtyOnHand: { gt: 0 } },
@@ -213,7 +213,7 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
   });
 
   // Create product
-  server.post("/", { preHandler: authorize("ADMIN", "MANAGER") }, async (request, reply) => {
+  server.post("/", { preHandler: authorize(["ADMIN", "MANAGER"]) }, async (request, reply) => {
     const data = request.body as {
       name: string;
       sku: string;
@@ -224,7 +224,7 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
       unit?: string;
       packSize?: number;
       categoryId?: string;
-      taxClassId?: string;
+      vatRateId?: string;
       defaultRetailPrice?: number;
     };
 
@@ -253,6 +253,20 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
       }
     }
 
+    // Validate activeIngredientId if provided (allow empty string as null)
+    let validatedActiveIngredientId = null;
+    if (data.activeIngredientId && data.activeIngredientId.trim() !== "") {
+      const activeIngredient = await prisma.activeIngredient.findUnique({
+        where: { id: data.activeIngredientId },
+      });
+
+      if (activeIngredient) {
+        validatedActiveIngredientId = data.activeIngredientId;
+      }
+      // If invalid, it stays null - don't block the operation
+    }
+    // Empty string or missing = null (no active ingredient)
+
     try {
       const product = await prisma.product.create({
         data: {
@@ -260,18 +274,18 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
           sku: data.sku,
           barcode: data.barcode || null,
           description: data.description || null,
-          activeIngredientId: data.activeIngredientId || null,
+          activeIngredientId: validatedActiveIngredientId,
           dosage: data.dosage || null,
           unit: data.unit || "unit",
           packSize: data.packSize || 1,
           categoryId: data.categoryId || null,
-          taxClassId: data.taxClassId || null,
+          vatRateId: data.vatRateId || null,
           defaultRetailPrice: data.defaultRetailPrice || null,
           status: "ACTIVE",
         },
         include: {
           category: true,
-          taxClass: true,
+          vatRate: true,
           activeIngredient: true,
         },
       });
@@ -300,7 +314,7 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
 
   // Update product
   // Update product (PATCH)
-  server.patch("/:id", { preHandler: authorize("ADMIN", "MANAGER") }, async (request, reply) => {
+  server.patch("/:id", { preHandler: authorize(["ADMIN", "MANAGER"]) }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const data = request.body as {
       name?: string;
@@ -312,7 +326,7 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
       unit?: string;
       packSize?: number;
       categoryId?: string;
-      taxClassId?: string;
+      vatRateId?: string;
       defaultRetailPrice?: number;
       status?: string;
     };
@@ -345,6 +359,25 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
       }
     }
 
+    // Validate activeIngredientId if provided (allow empty string as null)
+    let validatedActiveIngredientId = undefined;
+    if (data.activeIngredientId !== undefined) {
+      if (data.activeIngredientId === null || data.activeIngredientId.trim() === "") {
+        validatedActiveIngredientId = null;
+      } else {
+        const activeIngredient = await prisma.activeIngredient.findUnique({
+          where: { id: data.activeIngredientId },
+        });
+
+        if (activeIngredient) {
+          validatedActiveIngredientId = data.activeIngredientId;
+        } else {
+          // If invalid, set to null - don't block the operation
+          validatedActiveIngredientId = null;
+        }
+      }
+    }
+
     try {
       const product = await prisma.product.update({
         where: { id },
@@ -353,14 +386,14 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
           ...(data.sku !== undefined && { sku: data.sku }),
           ...(data.barcode !== undefined && { barcode: data.barcode }),
           ...(data.description !== undefined && { description: data.description }),
-          ...(data.activeIngredientId !== undefined && {
-            activeIngredientId: data.activeIngredientId,
+          ...(validatedActiveIngredientId !== undefined && {
+            activeIngredientId: validatedActiveIngredientId,
           }),
           ...(data.dosage !== undefined && { dosage: data.dosage }),
           ...(data.unit !== undefined && { unit: data.unit }),
           ...(data.packSize !== undefined && { packSize: data.packSize }),
           ...(data.categoryId !== undefined && { categoryId: data.categoryId }),
-          ...(data.taxClassId !== undefined && { taxClassId: data.taxClassId }),
+          ...(data.vatRateId !== undefined && { vatRateId: data.vatRateId }),
           ...(data.defaultRetailPrice !== undefined && {
             defaultRetailPrice: data.defaultRetailPrice,
           }),
@@ -368,7 +401,7 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
         },
         include: {
           category: true,
-          taxClass: true,
+          vatRate: true,
           activeIngredient: true,
         },
       });
@@ -396,7 +429,7 @@ export const productRoutes: FastifyPluginAsync = async (server) => {
   });
 
   // Delete product (soft delete by setting status to DISCONTINUED)
-  server.delete("/:id", { preHandler: authorize("ADMIN") }, async (request, reply) => {
+  server.delete("/:id", { preHandler: authorize(["ADMIN"]) }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
     const existing = await prisma.product.findUnique({ where: { id } });

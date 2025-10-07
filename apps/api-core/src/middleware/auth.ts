@@ -8,17 +8,17 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
   }
 }
 
-export function authorize(...allowedRoles: string[]) {
+export function authorize(allowedRoles: string[]) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
       const user = request.user as any;
 
       if (!allowedRoles.includes(user.role)) {
-        reply.status(403).send({ error: "Forbidden" });
+        return reply.status(403).send({ error: "Forbidden" });
       }
     } catch (err) {
-      reply.status(401).send({ error: "Unauthorized" });
+      return reply.status(401).send({ error: "Unauthorized" });
     }
   };
 }

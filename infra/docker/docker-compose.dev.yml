@@ -1,0 +1,33 @@
+# Development override for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+version: "3.9"
+
+services:
+  api-core:
+    build:
+      context: ../../apps/api-core
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ../../apps/api-core:/app
+      - /app/node_modules
+    command: pnpm run dev
+    environment:
+      NODE_ENV: development
+
+  svc-forecast:
+    build:
+      context: ../../apps/svc-forecast
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ../../apps/svc-forecast:/app
+      - /app/venv
+    command: python main.py
+    environment:
+      PYTHONUNBUFFERED: 1
+
+  web:
+    volumes:
+      - ../../apps/web:/app
+      - /app/node_modules
+    environment:
+      NODE_ENV: development

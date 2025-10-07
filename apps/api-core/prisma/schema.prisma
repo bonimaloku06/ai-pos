@@ -83,16 +83,21 @@ model Category {
   @@map("categories")
 }
 
-model TaxClass {
-  id        String   @id @default(cuid())
-  name      String
-  rate      Decimal  @db.Decimal(5, 4) // e.g., 0.2000 for 20%
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+model VatRate {
+  id          String   @id @default(cuid())
+  name        String   // e.g., "Standard VAT", "Reduced VAT"
+  rate        Decimal  @db.Decimal(5, 2) // e.g., 8.00 for 8%, 18.00 for 18%
+  isDefault   Boolean  @default(false) @map("is_default")
+  isActive    Boolean  @default(true) @map("is_active")
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  products Product[]
+  products       Product[]
+  purchaseOrders PurchaseOrder[]
+  goodsReceipts  GoodsReceipt[]
 
-  @@map("tax_classes")
+  @@map("vat_rates")
 }
 
 model ActiveIngredient {
@@ -119,8 +124,8 @@ model Product {
   packSize           Int           @default(1) @map("pack_size")
   categoryId         String?       @map("category_id")
   category           Category?     @relation(fields: [categoryId], references: [id])
-  taxClassId         String?       @map("tax_class_id")
-  taxClass           TaxClass?     @relation(fields: [taxClassId], references: [id])
+  vatRateId          String?       @map("vat_rate_id")
+  vatRate            VatRate?      @relation(fields: [vatRateId], references: [id])
   defaultRetailPrice Decimal?      @db.Decimal(12, 4) @map("default_retail_price") // Default retail price before tax
   status             ProductStatus @default(ACTIVE)
   createdAt          DateTime      @default(now()) @map("created_at")
@@ -257,6 +262,10 @@ model PurchaseOrder {
   supplier   Supplier      @relation(fields: [supplierId], references: [id])
   status     POStatus      @default(DRAFT)
   totalCost  Decimal       @default(0) @db.Decimal(12, 4) @map("total_cost")
+  vatRateId  String?       @map("vat_rate_id")
+  vatRate    VatRate?      @relation(fields: [vatRateId], references: [id])
+  vatAmount  Decimal       @default(0) @db.Decimal(12, 4) @map("vat_amount")
+  totalWithVat Decimal     @default(0) @db.Decimal(12, 4) @map("total_with_vat")
   expectedAt DateTime?     @map("expected_at")
   notes      String?
   createdBy  String        @map("created_by")
@@ -299,6 +308,11 @@ model GoodsReceipt {
   poId       String?  @map("po_id")
   po         PurchaseOrder? @relation(fields: [poId], references: [id])
   refNo      String?  @map("ref_no") // Supplier invoice/delivery note
+  vatRateId  String?  @map("vat_rate_id")
+  vatRate    VatRate? @relation(fields: [vatRateId], references: [id])
+  vatAmount  Decimal  @default(0) @db.Decimal(12, 4) @map("vat_amount")
+  totalCost  Decimal  @default(0) @db.Decimal(12, 4) @map("total_cost")
+  totalWithVat Decimal @default(0) @db.Decimal(12, 4) @map("total_with_vat")
   receivedAt DateTime @default(now()) @map("received_at")
   notes      String?
   receivedBy String   @map("received_by")
