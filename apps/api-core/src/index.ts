@@ -29,6 +29,7 @@ import { storeRoutes } from "./routes/stores.js";
 import { auditLogRoutes } from "./routes/audit-logs.js";
 import { activeIngredientRoutes } from "./routes/active-ingredients.js";
 import { taxClassRoutes } from "./routes/tax-classes.js";
+import { vatRatesRoutes } from "./routes/vat-rates.js";
 
 const server = Fastify({
   logger: true,
@@ -73,6 +74,7 @@ await server.register(swagger, {
       { name: "Audit Logs", description: "Audit trail" },
       { name: "Active Ingredients", description: "Active ingredient catalog" },
       { name: "Tax Classes", description: "Tax class management" },
+      { name: "VAT Rates", description: "VAT rate management" },
     ],
     components: {
       securitySchemes: {
@@ -145,6 +147,7 @@ await server.register(storeRoutes, { prefix: "/stores" });
 await server.register(auditLogRoutes, { prefix: "/audit-logs" });
 await server.register(activeIngredientRoutes, { prefix: "/active-ingredients" });
 await server.register(taxClassRoutes, { prefix: "/tax-classes" });
+await server.register(vatRatesRoutes, { prefix: "/vat-rates" });
 
 // Error handler
 server.setErrorHandler((error, request, reply) => {

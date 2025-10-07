@@ -30,7 +30,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, Percent, Edit, Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Users, Edit, Trash2, Receipt } from "lucide-react";
 
 interface User {
   id: string;
@@ -50,10 +51,13 @@ interface Store {
   name: string;
 }
 
-interface TaxClass {
+interface VatRate {
   id: string;
   name: string;
   rate: number;
+  isDefault: boolean;
+  isActive: boolean;
+  description?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -66,27 +70,28 @@ function SettingsPage() {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
-  const [taxClasses, setTaxClasses] = useState<TaxClass[]>([]);
+  const [vatRates, setVatRates] = useState<VatRate[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUserModal, setShowUserModal] = useState(false);
-  const [showTaxModal, setShowTaxModal] = useState(false);
+  const [showVatModal, setShowVatModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [editingTaxClass, setEditingTaxClass] = useState<TaxClass | null>(null);
+  const [editingVatRate, setEditingVatRate] = useState<VatRate | null>(null);
   const [userFormData, setUserFormData] = useState({
     email: "",
     password: "",
     role: "CASHIER" as "ADMIN" | "MANAGER" | "CASHIER",
     storeId: "",
   });
-  const [taxFormData, setTaxFormData] = useState({
+  const [vatFormData, setVatFormData] = useState({
     name: "",
     rate: 0,
+    description: "",
   });
 
   useEffect(() => {
     fetchUsers();
     fetchStores();
-    fetchTaxClasses();
+    fetchVatRates();
   }, []);
 
   const fetchUsers = async () => {
@@ -109,12 +114,17 @@ function SettingsPage() {
     }
   };
 
-  const fetchTaxClasses = async () => {
+  const fetchVatRates = async () => {
     try {
-      const data = await apiClient.get("/tax-classes");
-      setTaxClasses(data.taxClasses || []);
+      const data = await apiClient.get("/vat-rates");
+      // Ensure rate is a number
+      const normalizedData = (data || []).map((vr: VatRate) => ({
+        ...vr,
+        rate: Number(vr.rate)
+      }));
+      setVatRates(normalizedData);
     } catch (error) {
-      console.error("Failed to fetch tax classes:", error);
+      console.error("Failed to fetch VAT rates:", error);
     }
   };
 
@@ -189,57 +199,84 @@ function SettingsPage() {
     setShowUserModal(true);
   };
 
-  // Tax Class Management
-  const handleTaxSubmit = async (e: React.FormEvent) => {
+  // VAT Rate Management
+  const handleVatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const payload = {
-        name: taxFormData.name,
-        rate: taxFormData.rate / 100, // Convert percentage to decimal
+        name: vatFormData.name,
+        rate: vatFormData.rate,
+        description: vatFormData.description || null,
       };
 
-      if (editingTaxClass) {
-        await apiClient.patch(`/tax-classes/${editingTaxClass.id}`, payload);
+      if (editingVatRate) {
+        await apiClient.patch(`/vat-rates/${editingVatRate.id}`, payload);
       } else {
-        await apiClient.post("/tax-classes", payload);
+        await apiClient.post("/vat-rates", payload);
       }
 
-      await fetchTaxClasses();
-      resetTaxForm();
+      await fetchVatRates();
+      resetVatForm();
     } catch (error: any) {
-      console.error("Failed to save tax class:", error);
-      alert(error.message || "Failed to save tax class");
+      console.error("Failed to save VAT rate:", error);
+      alert(error.message || "Failed to save VAT rate");
     }
   };
 
-  const handleDeleteTaxClass = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this tax class? Products using this tax class will no longer have tax applied.")) return;
+  const handleDeleteVatRate = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this VAT rate?")) return;
 
     try {
-      await apiClient.delete(`/tax-classes/${id}`);
-      await fetchTaxClasses();
+      await apiClient.delete(`/vat-rates/${id}`);
+      await fetchVatRates();
     } catch (error: any) {
-      console.error("Failed to delete tax class:", error);
-      alert(error.message || "Failed to delete tax class");
+      console.error("Failed to delete VAT rate:", error);
+      alert(error.message || "Failed to delete VAT rate. It might be set as default.");
     }
   };
 
-  const resetTaxForm = () => {
-    setTaxFormData({
-      name: "",
-      rate: 0,
-    });
-    setEditingTaxClass(null);
-    setShowTaxModal(false);
+  const handleToggleDefault = async (vatRate: VatRate) => {
+    if (vatRate.isDefault) {
+      alert("This is already the default VAT rate. Set another rate as default to change.");
+      return;
+    }
+
+    try {
+      await apiClient.patch(`/vat-rates/${vatRate.id}/toggle-default`, {});
+      await fetchVatRates();
+    } catch (error: any) {
+      console.error("Failed to set default VAT:", error);
+      alert(error.message || "Failed to set default VAT rate");
+    }
   };
 
-  const handleEditTaxClass = (taxClass: TaxClass) => {
-    setEditingTaxClass(taxClass);
-    setTaxFormData({
-      name: taxClass.name,
-      rate: taxClass.rate * 100, // Convert decimal to percentage for display
+  const handleToggleVatActive = async (vatRate: VatRate) => {
+    try {
+      await apiClient.patch(`/vat-rates/${vatRate.id}`, { isActive: !vatRate.isActive });
+      await fetchVatRates();
+    } catch (error) {
+      console.error("Failed to toggle VAT rate:", error);
+    }
+  };
+
+  const resetVatForm = () => {
+    setVatFormData({
+      name: "",
+      rate: 0,
+      description: "",
     });
-    setShowTaxModal(true);
+    setEditingVatRate(null);
+    setShowVatModal(false);
+  };
+
+  const handleEditVatRate = (vatRate: VatRate) => {
+    setEditingVatRate(vatRate);
+    setVatFormData({
+      name: vatRate.name,
+      rate: vatRate.rate,
+      description: vatRate.description || "",
+    });
+    setShowVatModal(true);
   };
 
   if (loading) {
@@ -266,7 +303,7 @@ function SettingsPage() {
         {/* Header */}
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-          <p className="text-gray-600 mt-1">Manage users, tax classes, and system configuration</p>
+          <p className="text-gray-600 mt-1">Manage users, VAT/tax rates, and system configuration</p>
         </div>
 
         <Tabs defaultValue="users" className="space-y-4">
@@ -275,9 +312,9 @@ function SettingsPage() {
               <Users className="h-4 w-4" />
               Users
             </TabsTrigger>
-            <TabsTrigger value="taxes" className="flex items-center gap-2">
-              <Percent className="h-4 w-4" />
-              Tax Classes
+            <TabsTrigger value="vat" className="flex items-center gap-2">
+              <Receipt className="h-4 w-4" />
+              VAT/Tax Rates
             </TabsTrigger>
           </TabsList>
 
@@ -382,62 +419,95 @@ function SettingsPage() {
             </Card>
           </TabsContent>
 
-          {/* Tax Classes Tab */}
-          <TabsContent value="taxes" className="space-y-4">
+          {/* VAT Rates Tab */}
+          <TabsContent value="vat" className="space-y-4">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Tax Classes</CardTitle>
+                    <CardTitle>VAT/Tax Rates</CardTitle>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Manage VAT/tax rates for products (e.g., 0%, 8%, 18%)
+                      Manage VAT/tax rates for purchases and sales (e.g., 0%, 8%, 18%)
                     </p>
                   </div>
-                  <Button onClick={() => setShowTaxModal(true)}>+ Add Tax Class</Button>
+                  <Button onClick={() => setShowVatModal(true)}>+ Add VAT Rate</Button>
                 </div>
               </CardHeader>
               <CardContent>
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-12">Default</TableHead>
                       <TableHead>Name</TableHead>
-                      <TableHead>Tax Rate</TableHead>
-                      <TableHead>Created</TableHead>
+                      <TableHead>Rate</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Description</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {taxClasses.length === 0 ? (
+                    {vatRates.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                          No tax classes found. Add one to get started.
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          No VAT rates found. Add one to get started.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      taxClasses.map((taxClass) => (
-                        <TableRow key={taxClass.id}>
-                          <TableCell className="font-medium">{taxClass.name}</TableCell>
+                      vatRates.map((vatRate) => (
+                        <TableRow key={vatRate.id}>
                           <TableCell>
-                            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded font-medium">
-                              {(taxClass.rate * 100).toFixed(2)}%
+                            <Checkbox
+                              checked={vatRate.isDefault}
+                              onCheckedChange={() => handleToggleDefault(vatRate)}
+                              disabled={vatRate.isDefault}
+                              title={vatRate.isDefault ? "Currently default" : "Set as default"}
+                            />
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {vatRate.name}
+                            {vatRate.isDefault && (
+                              <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded">
+                                DEFAULT
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <span className="px-2 py-1 bg-green-100 text-green-800 rounded font-medium">
+                              {Number(vatRate.rate).toFixed(2)}%
                             </span>
                           </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleToggleVatActive(vatRate)}
+                              className={`${
+                                vatRate.isActive
+                                  ? "text-green-600 hover:text-green-700"
+                                  : "text-gray-600 hover:text-gray-700"
+                              }`}
+                            >
+                              {vatRate.isActive ? "Active" : "Inactive"}
+                            </Button>
+                          </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
-                            {new Date(taxClass.createdAt).toLocaleDateString()}
+                            {vatRate.description || "—"}
                           </TableCell>
                           <TableCell className="text-right">
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleEditTaxClass(taxClass)}
+                              onClick={() => handleEditVatRate(vatRate)}
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleDeleteTaxClass(taxClass.id)}
+                              onClick={() => handleDeleteVatRate(vatRate.id)}
+                              disabled={vatRate.isDefault}
                               className="text-destructive hover:text-destructive"
+                              title={vatRate.isDefault ? "Cannot delete default rate" : "Delete"}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -535,67 +605,88 @@ function SettingsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Tax Class Modal */}
-      <Dialog open={showTaxModal} onOpenChange={setShowTaxModal}>
+      {/* VAT Rate Modal */}
+      <Dialog open={showVatModal} onOpenChange={setShowVatModal}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingTaxClass ? "Edit Tax Class" : "Add Tax Class"}</DialogTitle>
+            <DialogTitle>{editingVatRate ? "Edit VAT Rate" : "Add VAT Rate"}</DialogTitle>
             <DialogDescription>
-              {editingTaxClass
-                ? "Update tax class information"
-                : "Create a new tax class (e.g., Standard VAT 18%)"}
+              {editingVatRate
+                ? "Update VAT/tax rate information"
+                : "Create a new VAT/tax rate for purchases and sales (e.g., 8%, 18%)"}
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleTaxSubmit} className="space-y-4">
+          <form onSubmit={handleVatSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="taxName">Tax Class Name</Label>
+              <Label htmlFor="vatName">VAT Rate Name</Label>
               <Input
-                id="taxName"
+                id="vatName"
                 type="text"
-                value={taxFormData.name}
-                onChange={(e) => setTaxFormData({ ...taxFormData, name: e.target.value })}
-                placeholder="e.g., Standard VAT, Reduced VAT, Zero-rated"
+                value={vatFormData.name}
+                onChange={(e) => setVatFormData({ ...vatFormData, name: e.target.value })}
+                placeholder="e.g., Standard VAT - 8%, Reduced VAT - 5%"
                 required
               />
               <p className="text-xs text-muted-foreground mt-1">
-                A descriptive name for this tax rate
+                A descriptive name for this VAT rate
               </p>
             </div>
 
             <div>
-              <Label htmlFor="taxRate">Tax Rate (%)</Label>
+              <Label htmlFor="vatRateValue">VAT Rate (%)</Label>
               <Input
-                id="taxRate"
+                id="vatRateValue"
                 type="number"
                 step="0.01"
                 min="0"
                 max="100"
-                value={taxFormData.rate}
+                value={vatFormData.rate}
                 onChange={(e) =>
-                  setTaxFormData({ ...taxFormData, rate: parseFloat(e.target.value) || 0 })
+                  setVatFormData({ ...vatFormData, rate: parseFloat(e.target.value) || 0 })
                 }
-                placeholder="e.g., 18, 8, 0"
+                placeholder="e.g., 8, 18, 5"
                 required
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Enter as percentage (e.g., 18 for 18% VAT)
+                Enter as percentage (e.g., 8 for 8% VAT)
               </p>
             </div>
 
-            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+            <div>
+              <Label htmlFor="vatDescription">Description (optional)</Label>
+              <Input
+                id="vatDescription"
+                type="text"
+                value={vatFormData.description}
+                onChange={(e) => setVatFormData({ ...vatFormData, description: e.target.value })}
+                placeholder="e.g., Standard rate for most goods"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Optional description for this VAT rate
+              </p>
+            </div>
+
+            <div className="bg-green-50 p-4 rounded-lg border border-green-200">
               <div className="text-sm font-medium mb-1">Preview</div>
-              <div className="text-lg font-bold text-blue-600">
-                {taxFormData.name || "Tax Class"}: {taxFormData.rate.toFixed(2)}%
+              <div className="text-lg font-bold text-green-600">
+                {vatFormData.name || "VAT Rate"}: {Number(vatFormData.rate).toFixed(2)}%
+              </div>
+              <div className="text-sm text-muted-foreground mt-1">
+                {vatFormData.description || "No description"}
+              </div>
+              <div className="text-xs text-blue-600 mt-2">
+                💡 Example: $100 purchase + {Number(vatFormData.rate).toFixed(2)}% VAT = $
+                {(100 + (100 * Number(vatFormData.rate)) / 100).toFixed(2)}
               </div>
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={resetTaxForm}>
+              <Button type="button" variant="outline" onClick={resetVatForm}>
                 Cancel
               </Button>
               <Button type="submit">
-                {editingTaxClass ? "Update Tax Class" : "Create Tax Class"}
+                {editingVatRate ? "Update VAT Rate" : "Create VAT Rate"}
               </Button>
             </DialogFooter>
           </form>

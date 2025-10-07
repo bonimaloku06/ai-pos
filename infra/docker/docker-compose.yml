@@ -1,6 +1,88 @@
 version: "3.9"
 
 services:
+  # Application Services
+  api-core:
+    build:
+      context: ../../apps/api-core
+      dockerfile: Dockerfile
+    container_name: pharmacy-pos-api
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 4000
+      DATABASE_URL: postgresql://pharmacy:pharmacy123@postgres:5432/pharmacy_pos
+      REDIS_URL: redis://redis:6379
+      MEILI_HOST: http://meilisearch:7700
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-masterKeyForDevelopment123}
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin123
+      S3_BUCKET: pharmacy-pos
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your-super-secret-refresh-key-change-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      FORECAST_SVC_URL: http://svc-forecast:8000
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      ENABLE_METRICS: ${ENABLE_METRICS:-true}
+      ENABLE_TRACING: ${ENABLE_TRACING:-false}
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  svc-forecast:
+    build:
+      context: ../../apps/svc-forecast
+      dockerfile: Dockerfile
+    container_name: pharmacy-pos-forecast
+    environment:
+      API_CORE_URL: http://api-core:4000
+      API_CORE_TOKEN: ${API_CORE_TOKEN:-your-api-token}
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      api-core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../../apps/web
+      dockerfile: Dockerfile
+      target: development
+    container_name: pharmacy-pos-web
+    environment:
+      VITE_API_URL: http://api-core:4000
+    ports:
+      - "5174:5174"
+    volumes:
+      - ../../apps/web:/app
+      - /app/node_modules
+    depends_on:
+      api-core:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Infrastructure Services
   postgres:
     image: postgres:16-alpine
     container_name: pharmacy-pos-db

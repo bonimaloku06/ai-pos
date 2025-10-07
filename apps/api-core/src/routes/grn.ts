@@ -13,6 +13,7 @@ export const grnRoutes: FastifyPluginAsync = async (server) => {
         storeId: string;
         supplierId: string;
         purchaseOrderId?: string;
+        vatRateId?: string;
         lines: Array<{
           productId: string;
           batchNumber?: string;
@@ -52,6 +53,22 @@ export const grnRoutes: FastifyPluginAsync = async (server) => {
         return reply.status(404).send({ error: "Supplier not found" });
       }
 
+      // Get VAT rate (use provided, or default)
+      let vatRate;
+      if (data.vatRateId) {
+        vatRate = await prisma.vatRate.findUnique({
+          where: { id: data.vatRateId },
+        });
+        if (!vatRate) {
+          return reply.status(400).send({ error: "Invalid VAT rate" });
+        }
+      } else {
+        // Get default VAT rate
+        vatRate = await prisma.vatRate.findFirst({
+          where: { isDefault: true, isActive: true },
+        });
+      }
+
       try {
         const result = await prisma.$transaction(async (tx) => {
           // Generate GRN number
@@ -62,6 +79,13 @@ export const grnRoutes: FastifyPluginAsync = async (server) => {
 
           const createdBatches = [];
           const stockMovements = [];
+          
+          // Calculate total cost before VAT
+          const totalCost = data.lines.reduce((sum, line) => sum + (line.unitCost * line.qty), 0);
+          
+          // Calculate VAT amount
+          const vatAmount = vatRate ? (totalCost * Number(vatRate.rate)) / 100 : 0;
+          const totalWithVat = totalCost + vatAmount;
 
           // Process each line
           for (const line of data.lines) {
@@ -144,6 +168,9 @@ export const grnRoutes: FastifyPluginAsync = async (server) => {
                   supplierId: data.supplierId,
                   lines: data.lines,
                   notes: data.notes,
+                  vatRate: vatRate?.id,
+                  vatAmount,
+                  totalWithVat,
                 },
               },
             },
@@ -153,7 +180,10 @@ export const grnRoutes: FastifyPluginAsync = async (server) => {
             grnNumber,
             batches: createdBatches,
             totalItems: data.lines.reduce((sum, l) => sum + l.qty, 0),
-            totalValue: data.lines.reduce((sum, l) => sum + l.qty * l.unitCost, 0),
+            totalCost,
+            vatRate: vatRate ? { id: vatRate.id, name: vatRate.name, rate: vatRate.rate } : null,
+            vatAmount,
+            totalWithVat,
           };
         });
 
