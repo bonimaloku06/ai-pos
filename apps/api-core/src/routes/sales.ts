@@ -19,6 +19,7 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
       paymentMethod: string;
       paid: number;
       notes?: string;
+      saleDate?: string; // Optional custom sale date for testing
     };
 
     // Validation
@@ -122,6 +123,9 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
         const saleCount = await tx.sale.count();
         const saleNumber = `SALE-${String(saleCount + 1).padStart(6, "0")}`;
 
+        // Parse custom sale date if provided
+        const saleDate = data.saleDate ? new Date(data.saleDate) : undefined;
+
         // Create sale
         const sale = await tx.sale.create({
           data: {
@@ -137,6 +141,7 @@ export const salesRoutes: FastifyPluginAsync = async (server) => {
             paymentMethod: data.paymentMethod,
             status: "COMPLETED",
             notes: data.notes,
+            ...(saleDate && { createdAt: saleDate }), // Override createdAt if custom date provided
             lines: {
               create: processedLines,
             },

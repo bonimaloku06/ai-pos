@@ -84,8 +84,8 @@ else
     docker-compose --env-file ../../.env up -d
     
     # Wait for key services
-    wait_for_service "http://localhost:5433" "PostgreSQL"
-    wait_for_service "http://localhost:7701/health" "Meilisearch"
+    wait_for_service "http://localhost:15433" "PostgreSQL"
+    wait_for_service "http://localhost:17701/health" "Meilisearch"
 fi
 
 echo ""
@@ -99,8 +99,8 @@ echo ""
 cd "$PROJECT_ROOT/apps/svc-forecast"
 
 # Check if already running
-if port_in_use 8000; then
-    echo "✅ Forecast service already running on port 8000"
+if port_in_use 18000; then
+    echo "✅ Forecast service already running on port 18000"
 else
     # Check if venv exists
     if [ ! -d "venv" ]; then
@@ -125,7 +125,7 @@ else
     echo $FORECAST_PID > forecast.pid
     
     # Wait for service to be ready
-    wait_for_service "http://localhost:8000/health" "Forecast Service"
+    wait_for_service "http://localhost:18000/health" "Forecast Service"
 fi
 
 echo ""
@@ -145,11 +145,11 @@ echo "✅ All Services Started!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "📊 Service URLs:"
-echo "   🌐 Web App:          http://localhost:5174"
-echo "   🔌 API Core:         http://localhost:4000"
-echo "   🔮 Forecast Service: http://localhost:8000"
-echo "   📊 Grafana:          http://localhost:3003"
-echo "   📦 MinIO Console:    http://localhost:9101"
+echo "   🌐 Web App:          http://localhost:15174"
+echo "   🔌 API Core:         http://localhost:14000"
+echo "   🔮 Forecast Service: http://localhost:18000"
+echo "   📊 Grafana:          http://localhost:13002"
+echo "   📦 MinIO Console:    http://localhost:19101"
 echo ""
 echo "🔑 Default Login:"
 echo "   Email:    admin@pharmacy.com"

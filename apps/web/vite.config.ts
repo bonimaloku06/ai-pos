@@ -40,11 +40,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5174,
+    port: 15174,
     host: true, // Enable host exposure for Docker
     proxy: {
       "/api": {
-        target: process.env.VITE_API_URL || "http://localhost:4000",
+        target: process.env.VITE_API_URL || "http://localhost:14000",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
