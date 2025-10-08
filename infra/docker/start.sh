@@ -15,27 +15,30 @@ echo "   Environment file: $ENV_FILE"
 echo ""
 
 # Check if .env exists
-if [ ! -f "$ENV_FILE" ]; then
-    echo "❌ Error: .env file not found at $ENV_FILE"
-    exit 1
+if [ -f "$ENV_FILE" ]; then
+    echo "   Using environment file: $ENV_FILE"
+    ENV_FLAG="--env-file $ENV_FILE"
+else
+    echo "   Using default port configuration (no .env file found)"
+    ENV_FLAG=""
 fi
 
-# Start services
+# Start services (only infrastructure)
 cd "$SCRIPT_DIR"
-docker-compose --env-file "$ENV_FILE" up -d
+docker-compose $ENV_FLAG up -d postgres redis meilisearch minio prometheus grafana mailhog
 
 echo ""
 echo "✅ Services started successfully!"
 echo ""
 echo "📊 Service URLs:"
-echo "   PostgreSQL:      localhost:5433"
-echo "   Redis:           localhost:6380"
-echo "   Meilisearch:     http://localhost:7701"
-echo "   MinIO Console:   http://localhost:9101"
-echo "   MinIO API:       http://localhost:9100"
-echo "   Prometheus:      http://localhost:9091"
-echo "   Grafana:         http://localhost:3003 (admin/admin123)"
-echo "   MailHog UI:      http://localhost:8026"
+echo "   PostgreSQL:      localhost:15433"
+echo "   Redis:           localhost:16380"
+echo "   Meilisearch:     http://localhost:17701"
+echo "   MinIO Console:   http://localhost:19101"
+echo "   MinIO API:       http://localhost:19100"
+echo "   Prometheus:      http://localhost:19091"
+echo "   Grafana:         http://localhost:13002 (admin/admin123)"
+echo "   MailHog UI:      http://localhost:18026"
 echo ""
 echo "📝 View logs: docker-compose --env-file $ENV_FILE logs -f"
 echo "⏹️  Stop services: docker-compose --env-file $ENV_FILE down"

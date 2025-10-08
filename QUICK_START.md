@@ -3,6 +3,7 @@
 ## Start Everything
 
 ### 1. Start Docker Services
+
 ```bash
 ./infra/docker/start.sh
 ```
@@ -10,32 +11,38 @@
 Wait until all containers show "healthy" status.
 
 ### 2. Start Application
+
 ```bash
 pnpm dev
 ```
 
 This starts:
-- API Core on http://localhost:4000
-- Web App on http://localhost:5173
+
+- API Core on http://localhost:14000
+- Web App on http://localhost:15174
 
 ## Access Your Application
 
 **Main App:**
-- Web Interface: http://localhost:5173
-- API Documentation: http://localhost:4000/docs
+
+- Web Interface: http://localhost:15174
+- API Documentation: http://localhost:14000/docs
 
 **Management Tools:**
-- Grafana: http://localhost:3003 (admin/admin123)
-- MinIO Console: http://localhost:9101 (minioadmin/minioadmin123)
-- MailHog: http://localhost:8026
-- Prometheus: http://localhost:9091
+
+- Grafana: http://localhost:13002 (admin/admin123)
+- MinIO Console: http://localhost:19101 (minioadmin/minioadmin123)
+- MailHog: http://localhost:18026
+- Prometheus: http://localhost:19091
 
 ## Stop Everything
 
 ### Stop Application
+
 Press `Ctrl+C` in the terminal running `pnpm dev`
 
 ### Stop Docker
+
 ```bash
 ./infra/docker/stop.sh
 ```
@@ -45,9 +52,11 @@ Press `Ctrl+C` in the terminal running `pnpm dev`
 ### Application won't connect to services?
 
 1. **Make sure Docker is running:**
+
    ```bash
    docker ps
    ```
+
    Should show 7 containers running.
 
 2. **Restart everything:**
@@ -64,20 +73,22 @@ See [PROBLEM_SOLVED.md](PROBLEM_SOLVED.md) for detailed troubleshooting.
 
 ## Port Configuration
 
-All services use **unique ports** to avoid conflicts:
+All services use **high-range ports (10000+)** to avoid conflicts:
 
-| Service      | Port  |
-|--------------|-------|
-| Web App      | 5173  |
-| API Core     | 4000  |
-| PostgreSQL   | 5433  |
-| Redis        | 6380  |
-| Meilisearch  | 7701  |
-| MinIO API    | 9100  |
-| MinIO Console| 9101  |
-| Prometheus   | 9091  |
-| Grafana      | 3003  |
-| MailHog UI   | 8026  |
+| Service       | Port  |
+| ------------- | ----- |
+| Web App       | 15174 |
+| API Core      | 14000 |
+| Forecast Svc  | 18000 |
+| PostgreSQL    | 15433 |
+| Redis         | 16380 |
+| Meilisearch   | 17701 |
+| MinIO API     | 19100 |
+| MinIO Console | 19101 |
+| Prometheus    | 19091 |
+| Grafana       | 13002 |
+| MailHog SMTP  | 11026 |
+| MailHog UI    | 18026 |
 
 ## First Time Setup
 
@@ -120,6 +131,7 @@ pnpm dev
 **That's it!** You're ready to develop. 🎉
 
 For more details, see:
+
 - [README.md](README.md) - Full documentation
 - [PROBLEM_SOLVED.md](PROBLEM_SOLVED.md) - Port configuration details
 - [APPLICATION_CONFIG_UPDATED.md](APPLICATION_CONFIG_UPDATED.md) - Configuration changes

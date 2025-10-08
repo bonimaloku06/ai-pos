@@ -22,7 +22,15 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Package, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, CheckCircle2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Package, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, CheckCircle2, CalendarIcon } from "lucide-react";
+import { format } from "date-fns";
 
 export const Route = createFileRoute("/pos")({
   component: POSScreen,
@@ -62,6 +70,8 @@ function POSScreen() {
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
   const [cartDiscountType, setCartDiscountType] = useState<"percentage" | "fixed">("percentage");
   const [cartDiscountValue, setCartDiscountValue] = useState(0);
+  const [useCustomDate, setUseCustomDate] = useState(false);
+  const [saleDate, setSaleDate] = useState<Date>(new Date());
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Search products
@@ -222,7 +232,7 @@ function POSScreen() {
 
     setIsProcessing(true);
     try {
-      const saleData = {
+      const saleData: any = {
         storeId: user?.storeId || "default-store",
         lines: cart.map(item => ({
           productId: item.productId,
@@ -235,6 +245,11 @@ function POSScreen() {
         paid,
       };
 
+      // Add custom sale date if enabled
+      if (useCustomDate) {
+        saleData.saleDate = saleDate.toISOString();
+      }
+
       const result = await apiClient.createSale(saleData);
 
       alert(`Sale completed! Change: $${change.toFixed(2)}`);
@@ -243,6 +258,7 @@ function POSScreen() {
       setCart([]);
       setAmountPaid("");
       setCartDiscountValue(0);
+      setSaleDate(new Date()); // Reset to current date
       searchInputRef.current?.focus();
     } catch (error: any) {
       alert(`Checkout failed: ${error.message}`);
@@ -606,6 +622,56 @@ function POSScreen() {
               </SelectContent>
             </Select>
           </div>
+
+          {/* Sale Date Override */}
+          <Card className={useCustomDate ? "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20" : ""}>
+            <CardContent className="pt-6 space-y-3">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="custom-date" className="flex items-center gap-2 cursor-pointer">
+                  <CalendarIcon className="h-4 w-4" />
+                  <span>Custom Sale Date</span>
+                </Label>
+                <Switch
+                  id="custom-date"
+                  checked={useCustomDate}
+                  onCheckedChange={(checked) => {
+                    setUseCustomDate(checked);
+                    if (!checked) {
+                      setSaleDate(new Date()); // Reset to current date when disabled
+                    }
+                  }}
+                />
+              </div>
+
+              {useCustomDate && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal h-11"
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {format(saleDate, "PPP")}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={saleDate}
+                      onSelect={(date) => date && setSaleDate(date)}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                {useCustomDate
+                  ? "Sale will be recorded with the selected date for testing purposes"
+                  : "Sale will use current date and time"}
+              </p>
+            </CardContent>
+          </Card>
 
           {/* Amount Paid */}
           <div className="space-y-2">

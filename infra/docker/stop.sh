@@ -11,7 +11,13 @@ ENV_FILE="$PROJECT_ROOT/.env"
 echo "⏹️  Stopping Pharmacy POS Docker Services..."
 
 cd "$SCRIPT_DIR"
-docker-compose --env-file "$ENV_FILE" down
+
+# Check if .env exists
+if [ -f "$ENV_FILE" ]; then
+    docker-compose --env-file "$ENV_FILE" down
+else
+    docker-compose down
+fi
 
 echo ""
 echo "✅ All services stopped!"

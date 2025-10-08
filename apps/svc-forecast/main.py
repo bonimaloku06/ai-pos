@@ -19,10 +19,10 @@ app = FastAPI(
 )
 
 # Force correct API_CORE_URL (override any parent .env)
-API_CORE_URL = os.getenv("API_CORE_URL", "http://localhost:4000")
-if "3000" in API_CORE_URL:
-    print(f"[WARNING] Detected wrong API_CORE_URL: {API_CORE_URL}, fixing to port 4000")
-    API_CORE_URL = "http://localhost:4000"
+API_CORE_URL = os.getenv("API_CORE_URL", "http://localhost:14000")
+if "3000" in API_CORE_URL or "4000" in API_CORE_URL:
+    print(f"[WARNING] Detected wrong API_CORE_URL: {API_CORE_URL}, fixing to port 14000")
+    API_CORE_URL = "http://localhost:14000"
 API_CORE_TOKEN = os.getenv("API_CORE_TOKEN", "")
 
 # Verify environment variables
@@ -853,9 +853,9 @@ async def v3_health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    # Use FORECAST_PORT or default to 8000 (avoid conflict with API_CORE_PORT)
-    port = int(os.getenv("FORECAST_PORT", os.getenv("PORT", "8000")))
-    if port == 4000:  # If root .env PORT=4000, use 8000 for forecast
-        port = 8000
+    # Use FORECAST_PORT or default to 18000 (avoid conflict with API_CORE_PORT)
+    port = int(os.getenv("FORECAST_PORT", os.getenv("PORT", "18000")))
+    if port == 14000:  # If root .env PORT=14000, use 18000 for forecast
+        port = 18000
     print(f"Starting Forecast Service on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
